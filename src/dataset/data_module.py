@@ -39,7 +39,8 @@ def get_data_shim(encoder: nn.Module) -> DataShim:
 # the training ratio of datasets (example)
 prob_mapping = {DatasetScannetpp: 0.5, 
                 DatasetDL3DV: 0.5,
-                DatasetCo3d: 0.5}
+                DatasetCo3d: 0.5,
+                DatasetNuScenes: 1.0}
 
 @dataclass
 class DataLoaderStageCfg:
@@ -105,6 +106,7 @@ class DataModule(LightningDataModule):
         prob_ls = [prob_mapping[type(dataset)] for dataset in datasets_ls]
         # we assume all the dataset share the same num_context_views
         
+        print("train_dataloader function Datasets in training:", [type(dataset).__name__ for dataset in datasets_ls])
         if len(datasets_ls) > 1:
             prob = prob_ls
             context_num_views = [dataset.cfg.view_sampler.num_context_views for dataset in datasets_ls]
@@ -155,6 +157,7 @@ class DataModule(LightningDataModule):
              prob = [0.5] * len(datasets_ls)
         else:
             prob = None
+        print("val_dataloader function Datasets in validation:", [type(dataset).__name__ for dataset in datasets_ls])
         sampler = MixedBatchSampler(datasets_ls, 
                                     batch_size=self.data_loader_cfg.train.batch_size, 
                                     num_context_views=dataset_cfg['view_sampler']['num_context_views'], 

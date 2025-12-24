@@ -179,7 +179,9 @@ class DynamicBatchSampler(Sampler):
             try:
                 # Sample random image number and aspect ratio
                 random_image_num = int(np.random.choice(self.possible_nums, p=self.normalized_weights))
-                random_ps_h = np.random.randint(low=(self.h_range[0] // 14), high=(self.h_range[1] // 14)+1)
+                # random_ps_h = np.random.randint(low=(self.h_range[0] // 14), high=(self.h_range[1] // 14)+1)
+                ### fixed ps_h for nuscenes
+                random_ps_h = self.h_range[1] // 14 ### 实际上后续src/dataset/dataset_nuscenes.py没有使用
 
                 # Update sampler parameters
                 self.sampler.update_parameters(
@@ -298,7 +300,8 @@ class MixedBatchSampler(BatchSampler):
                 ds.set_epoch(0)
             batch_sampler = DynamicBatchSampler(
                 sampler, 
-                [2, ds.cfg.view_sampler.num_context_views], 
+                # [2, ds.cfg.view_sampler.num_context_views], 
+                [ds.cfg.view_sampler.num_context_views, ds.cfg.view_sampler.num_context_views],  ### fixed image num for each dataset
                 ds.cfg.input_image_shape,
                 seed=42,
                 max_img_per_gpu=ds.cfg.view_sampler.max_img_per_gpu
@@ -325,6 +328,7 @@ class MixedBatchSampler(BatchSampler):
         ]  # index in original dataset
         self.n_batches = [len(b) for b in self.raw_batches]
         self.n_total_batch = sum(self.n_batches)
+        print("Total number of batches from all datasets: ", self.n_total_batch)
         # print("Total batch num is ", self.n_total_batch)
         # sampling probability
         if prob is None:
