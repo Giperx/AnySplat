@@ -146,13 +146,13 @@ class ModelWrapper(LightningModule):
         if self.model.encoder.pred_pose:
             self.loss_pose = HuberLoss(alpha=self.train_cfg.pose_loss_alpha, delta=self.train_cfg.pose_loss_delta)
         
-        if self.model.encoder.distill:
-            self.loss_distill = DistillLoss(
-                delta=self.train_cfg.pose_loss_delta,
-                weight_pose=self.train_cfg.weight_pose,
-                weight_depth=self.train_cfg.weight_depth,
-                weight_normal=self.train_cfg.weight_normal
-            )
+        # if self.model.encoder.distill:
+        #     self.loss_distill = DistillLoss(
+        #         delta=self.train_cfg.pose_loss_delta,
+        #         weight_pose=self.train_cfg.weight_pose,
+        #         weight_depth=self.train_cfg.weight_depth,
+        #         weight_normal=self.train_cfg.weight_normal
+        #     )
 
         # This is used for testing.
         self.benchmarker = Benchmarker()
@@ -252,14 +252,14 @@ class ModelWrapper(LightningModule):
                 self.log("loss/ctx_depth", loss_depth)
                 total_loss = total_loss + loss_depth
 
-            if distill_infos is not None:
-                # distill ctx pred_pose & depth & normal
-                loss_distill_list = self.loss_distill(distill_infos, pred_pose_enc_list, output, batch)
-                self.log("loss/distill", loss_distill_list['loss_distill'])
-                self.log("loss/distill_pose", loss_distill_list['loss_pose'])
-                self.log("loss/distill_depth", loss_distill_list['loss_depth'])
-                self.log("loss/distill_normal", loss_distill_list['loss_normal'])
-                total_loss = total_loss + loss_distill_list['loss_distill']
+            # if distill_infos is not None:
+            #     # distill ctx pred_pose & depth & normal
+            #     loss_distill_list = self.loss_distill(distill_infos, pred_pose_enc_list, output, batch)
+            #     self.log("loss/distill", loss_distill_list['loss_distill'])
+            #     self.log("loss/distill_pose", loss_distill_list['loss_pose'])
+            #     self.log("loss/distill_depth", loss_distill_list['loss_depth'])
+            #     self.log("loss/distill_normal", loss_distill_list['loss_normal'])
+            #     total_loss = total_loss + loss_distill_list['loss_distill']
         
         self.log("loss/total", total_loss)
         print(f"total_loss: {total_loss}")
