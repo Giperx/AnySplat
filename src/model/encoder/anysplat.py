@@ -20,6 +20,7 @@ from src.dataset.types import BatchedExample, DataShim
 from src.geometry.projection import sample_image_grid
 
 from src.model.encoder.heads.vggt_dpt_gs_head import VGGT_DPT_GS_Head
+from src.model.encoder.heads.GaussianHead import GaussianHead, DPTHeadDGGT
 from src.model.encoder.vggt.utils.geometry import (
     batchify_unproject_depth_map_to_point_map,
     unproject_depth_map_to_point_map,
@@ -208,7 +209,7 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         else:
             self.gaussian_adapter = GaussianAdapter(cfg.gaussian_adapter)
 
-        self.raw_gs_dim = 1 + self.gaussian_adapter.d_in  # 1 for opacity
+        self.raw_gs_dim = 1 + self.gaussian_adapter.d_in  # 1 for opacity, 1+7+3
         self.voxel_size = cfg.voxel_size
         self.gs_params_head_type = cfg.gs_params_head_type
         # fake backbone for head parameters
@@ -216,12 +217,17 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         self.gaussian_param_head = VGGT_DPT_GS_Head(
             dim_in=2048,
             patch_size=head_params.patch_size,
-            output_dim=self.raw_gs_dim + 1,
+            output_dim=self.raw_gs_dim + 1, # 1 for confidence
             activation="norm_exp",
             conf_activation="expp1",
             features=head_params.feature_dim,
         )
 
+        ### from DGGT
+        # self.gs_head = GaussianHead(dim_in= 3 * head_params.enc_embed_dim, output_dim=3 + 1 + 3 + 4 + 1, activation="sigmoid")# ,down_ratio=2)#RGB
+        self.dynamic_head = DPTHeadDGGT(dim_in= head_params.enc_embed_dim, output_dim = 1 + 1, activation="linear") # ,down_ratio=2)#RGB
+        
+        
         ### Freeze specific components
         if self.frozenAggregator:
             for param in self.aggregator.parameters():
@@ -427,11 +433,17 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         #         torch.cuda.empty_cache()
 
         with torch.amp.autocast("cuda", enabled=True, dtype=torch.bfloat16):
-            aggregated_tokens_list, patch_start_idx = self.aggregator(
+            # aggregated_tokens_list, patch_start_idx = self.aggregator(
+            #     image.to(torch.bfloat16),
+            #     intermediate_layer_idx=self.cfg.intermediate_layer_idx,
+            # )
+            
+            ### for DGGT aggregator
+            aggregated_tokens_list, image_tokens_list, dino_token_list, patch_start_idx = self.aggregator(
                 image.to(torch.bfloat16),
                 intermediate_layer_idx=self.cfg.intermediate_layer_idx,
             )
-
+            
         with torch.amp.autocast("cuda", enabled=False):
             pred_pose_enc_list = self.camera_head(aggregated_tokens_list)
             last_pred_pose_enc = pred_pose_enc_list[-1]
@@ -482,8 +494,12 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
             patch_start_idx=patch_start_idx,
             image_size=(h, w),
         )
-
-        del aggregated_tokens_list, patch_start_idx
+        
+        ### infer gs_head like DGGT
+        # out = self.gs_head(image_tokens_list, image, patch_start_idx)
+        dynamic_conf, _ = self.dynamic_head(dino_token_list, image, patch_start_idx)
+        
+        del aggregated_tokens_list, patch_start_idx, image_tokens_list, dino_token_list
         torch.cuda.empty_cache()
 
         pts_flat = pts_all.flatten(2, 3)
@@ -521,6 +537,11 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         depths = neural_pts[..., -1].unsqueeze(-1)
         densities = neural_feats[..., 0].sigmoid()
 
+        ### for DGGT
+        # opacity_idx = 3
+        # densities = neural_feats[..., opacity_idx].sigmoid()
+        
+        
         assert len(densities.shape) == 2, "the shape of densities should be (B, N)"
         assert neural_pts.shape[1] > 1, "the number of voxels should be greater than 1"
 
@@ -569,7 +590,14 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
             opacity,
             neural_feats[..., 1:].squeeze(2),
         )
-
+        
+        ### for DGGT
+        # gaussians = self.gaussian_adapter.forward(
+        #     neural_pts,
+        #     depths,
+        #     opacity,
+        #     neural_feats, # 传入完整特征 [Color, Opacity, Scale, Rot]
+        # )
         if visualization_dump is not None:
             visualization_dump["depth"] = rearrange(
                 pts_all[..., -1].flatten(2, 3).unsqueeze(-1).unsqueeze(-1),

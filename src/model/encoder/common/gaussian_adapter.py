@@ -144,6 +144,75 @@ class UnifiedGaussianAdapter(GaussianAdapter):
             scales=scales.float(),
             rotations=rotations.float(),
         )
+        
+class UnifiedGaussianAdapterForDGGT(GaussianAdapter):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 假设 sh_degree 在初始化时已知，如果只是RGB，则 d_sh * 3 = 3 (degree 0)
+        # 如果 self.d_sh 是每个颜色的系数数量 (比如 (degree+1)**2)
+        # 根据你提供的 output_dim = 3 + 1 + 3 + 4 + 1，这里的 Color 是 3 通道
+        pass
+
+    def forward(
+        self,
+        means: Float[Tensor, "*#batch 3"],
+        depths: Float[Tensor, "*#batch"],
+        opacities: Float[Tensor, "*#batch"], # 这是外部计算好传入的最终 opacity
+        raw_gaussians: Float[Tensor, "*#batch _"], # 这是 Voxelize 后的特征
+        eps: float = 1e-8,
+        intrinsics: Optional[Float[Tensor, "*#batch 3 3"]] = None,
+        coordinates: Optional[Float[Tensor, "*#batch 2"]] = None,
+    ) -> Gaussians:
+        # 定义各部分通道长度
+        # 根据 output_dim = 3(Color) + 1(Opacity) + 3(Scale) + 4(Rot) (+1 Conf outside)
+        c_color = 3  # 如果是高阶SH，这里需要改为 ((sh_degree + 1)**2) * 3
+        c_opa = 1
+        c_scale = 3
+        c_rot = 4
+        
+        # 按照 gs_activate_head 的逻辑进行 Split
+        # 此时 raw_gaussians 不包含 Confidence (在外面已经被剥离)
+        # 顺序: [Color, Opacity, Scale, Rotation]
+        color, _, scales, rotations = torch.split(
+            raw_gaussians, 
+            [c_color, c_opa, c_scale, c_rot], 
+            dim=-1
+        )
+        
+        # --- 1. Scale Activation ---
+        # 对应 gs_activate_head: scale = 0.1 * F.softplus(scale)
+        scales = 0.1 * F.softplus(scales)
+        
+        # --- 2. Rotation Activation ---
+        # 对应 gs_activate_head: rotation = F.normalize(rotation, dim=-1)
+        rotations = F.normalize(rotations, dim=-1)
+        
+        # --- 3. Color / SH Processing ---
+        # 对应 gs_activate_head: if sh_degree is None: color = torch.sigmoid(color)
+        # 注意：这里 opacities 是外部传入的，所以不需要从 raw_gaussians 取出的 opacity
+        
+        # 如果是纯 RGB (dim=3)
+        if c_color == 3:
+            sh = torch.sigmoid(color) # 限制在 [0, 1]
+            # 如果 Gaussian 类需要 SH 格式，可能需要 unsqueeze，视你的 Gaussians 类定义而定
+            # 假设 Gaussians 类可以直接接受 RGB 作为 harmonics 的 0阶项
+            # 或者我们需要把它 reshape 成 sh 格式
+            sh = sh.unsqueeze(-2) # [..., 1, 3] -> 1个基函数, 3个颜色通道
+        else:
+            # 如果是高阶 SH，通常不加 sigmoid，直接作为系数
+            sh = rearrange(color, "... (xyz d_sh) -> ... xyz d_sh", xyz=3)
+            # sh = sh.broadcast_to((*opacities.shape, 3, self.d_sh)) * self.sh_mask # 如果需要 mask
+        
+        covariances = build_covariance(scales, rotations)
+        
+        return Gaussians(
+            means=means.float(),
+            covariances=covariances.float(),
+            harmonics=sh.float(),
+            opacities=opacities.float(),
+            scales=scales.float(),
+            rotations=rotations.float(),
+        )
 
 class Unet3dGaussianAdapter(GaussianAdapter):
     def forward(

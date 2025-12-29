@@ -46,6 +46,24 @@ fixed图像的高度相关random_ps_h；
 
 * TODO：修改Gaussian Head，增加Dynamic Head
 
+* src/model/encoder/heads/GaussianHead.py   head_act.py utils.py
+
+增加对应py文件。GaussianHead和原来一致，返回长度特征7+3rgb+1: [color,opacity,scale,rotation] conf. 原来的head返回特征后续对应为scales, rotations, sh, conf。
+
+* TODO: GaussianHead的返回应修改为feat，衔接原来的vggt_dpt_gs_head的返回结果，供后续的vol使用。
+* TODO: gs_activate_head的逻辑处理进UnifiedGaussianAdapter中。 还需check。
+* TODO: 增加判断逻辑，选用哪种gs head。
+
+* dynamic_head
+
+self.dynamic_head = DPTHeadDGGT(dim_in= head_params.enc_embed_dim, output_dim = 1 + 1, activation="linear")
+
+* TODO: 合并相关mask逻辑，实现动静分离。
+
+* src/model/encoder/vggt/models/aggregator.py
+
+增加return output_list_with_tokens, dino_token_list供后续的gs_head和dynamic_head使用。
+
 4. 训练过程相关
 
 * TODO：宽视野图像生成

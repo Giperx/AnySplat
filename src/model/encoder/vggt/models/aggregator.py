@@ -184,6 +184,104 @@ class Aggregator(nn.Module):
             if hasattr(self.patch_embed, "mask_token"):
                 self.patch_embed.mask_token.requires_grad_(False)
 
+    ### OG Aggregator
+    # def forward(
+    #     self,
+    #     images: torch.Tensor,
+    #     intermediate_layer_idx: Optional[List[int]] = None
+    # ) -> Tuple[List[torch.Tensor], int]:
+    #     """
+    #     Args:
+    #         images (torch.Tensor): Input images with shape [B, S, 3, H, W], in range [0, 1].
+    #             B: batch size, S: sequence length, 3: RGB channels, H: height, W: width
+
+    #     Returns:
+    #         (list[torch.Tensor], int):
+    #             The list of outputs from the attention blocks,
+    #             and the patch_start_idx indicating where patch tokens begin.
+    #     """
+    #     B, S, C_in, H, W = images.shape
+
+    #     if C_in != 3:
+    #         raise ValueError(f"Expected 3 input channels, got {C_in}")
+        
+    #     # Normalize images and reshape for patch embed
+    #     images = (images - self._resnet_mean) / self._resnet_std
+
+    #     # Reshape to [B*S, C, H, W] for patch embedding
+    #     images = images.view(B * S, C_in, H, W)
+    #     patch_tokens = self.patch_embed(images)
+
+    #     if isinstance(patch_tokens, dict):
+    #         patch_tokens = patch_tokens["x_norm_patchtokens"]
+
+    #     _, P, C = patch_tokens.shape
+
+    #     # Expand camera and register tokens to match batch size and sequence length
+    #     camera_token = slice_expand_and_flatten(self.camera_token, B, S)
+    #     register_token = slice_expand_and_flatten(self.register_token, B, S)
+
+    #     # Concatenate special tokens with patch tokens
+    #     tokens = torch.cat([camera_token, register_token, patch_tokens], dim=1)
+
+    #     pos = None
+    #     if self.rope is not None:
+    #         pos = self.position_getter(B * S, H // self.patch_size, W // self.patch_size, device=images.device)
+
+    #     if self.patch_start_idx > 0:
+    #         # do not use position embedding for special tokens (camera and register tokens)
+    #         # so set pos to 0 for the special tokens
+    #         pos = pos + 1
+    #         pos_special = torch.zeros(B * S, self.patch_start_idx, 2).to(images.device).to(pos.dtype)
+    #         pos = torch.cat([pos_special, pos], dim=1)
+
+    #     # update P because we added special tokens
+    #     _, P, C = tokens.shape
+
+    #     frame_idx = 0
+    #     global_idx = 0
+    #     output_list = []
+    #     layer_idx = 0
+        
+    #     # Convert intermediate_layer_idx to a set for O(1) lookup
+    #     if intermediate_layer_idx is not None:
+    #         required_layers = set(intermediate_layer_idx)
+    #         # Always include the last layer for camera_head
+    #         required_layers.add(self.depth - 1)
+
+    #     for _ in range(self.aa_block_num):
+    #         for attn_type in self.aa_order:
+    #             if attn_type == "frame":
+    #                 tokens, frame_idx, frame_intermediates = self._process_frame_attention(
+    #                     tokens, B, S, P, C, frame_idx, pos=pos
+    #                 )
+    #             elif attn_type == "global":
+    #                 tokens, global_idx, global_intermediates = self._process_global_attention(
+    #                     tokens, B, S, P, C, global_idx, pos=pos
+    #                 )
+    #             else:
+    #                 raise ValueError(f"Unknown attention type: {attn_type}")
+
+    #         if intermediate_layer_idx is not None:
+    #             for i in range(len(frame_intermediates)):
+    #                 current_layer = layer_idx + i
+    #                 if current_layer in required_layers:
+    #                     # concat frame and global intermediates, [B x S x P x 2C]
+    #                     concat_inter = torch.cat([frame_intermediates[i], global_intermediates[i]], dim=-1)
+    #                     output_list.append(concat_inter)
+    #             layer_idx += self.aa_block_size
+            
+    #         else:
+    #             for i in range(len(frame_intermediates)):
+    #                 # concat frame and global intermediates, [B x S x P x 2C]
+    #                 concat_inter = torch.cat([frame_intermediates[i], global_intermediates[i]], dim=-1)
+    #                 output_list.append(concat_inter)
+        
+    #     del concat_inter
+    #     del frame_intermediates
+    #     del global_intermediates
+    #     return output_list, self.patch_start_idx
+    
     def forward(
         self,
         images: torch.Tensor,
@@ -216,12 +314,23 @@ class Aggregator(nn.Module):
 
         _, P, C = patch_tokens.shape
 
+        # H_patch = H // self.patch_size
+        # W_patch = W // self.patch_size
+        # image_feature = patch_tokens.view(B, S, H_patch, W_patch, C) #[B, S, patch_num, embed_dim]
+
         # Expand camera and register tokens to match batch size and sequence length
         camera_token = slice_expand_and_flatten(self.camera_token, B, S)
         register_token = slice_expand_and_flatten(self.register_token, B, S)
 
         # Concatenate special tokens with patch tokens
         tokens = torch.cat([camera_token, register_token, patch_tokens], dim=1)
+
+        penultimate_features = self.patch_embed.get_intermediate_layers(images, n=24)
+        dino_token_list = []
+        for i in range(len(penultimate_features)):
+            dino_tokens = torch.cat([camera_token, register_token, penultimate_features[i]], dim=1).view(B, S, -1, C) #tokens 
+            dino_token_list.append(dino_tokens)
+        #dino_tokens = tokens.view(B, S, -1, C)
 
         pos = None
         if self.rope is not None:
@@ -242,12 +351,13 @@ class Aggregator(nn.Module):
         output_list = []
         layer_idx = 0
         
+        output_list_with_tokens = []
+        
         # Convert intermediate_layer_idx to a set for O(1) lookup
         if intermediate_layer_idx is not None:
             required_layers = set(intermediate_layer_idx)
             # Always include the last layer for camera_head
             required_layers.add(self.depth - 1)
-
         for _ in range(self.aa_block_num):
             for attn_type in self.aa_order:
                 if attn_type == "frame":
@@ -259,8 +369,7 @@ class Aggregator(nn.Module):
                         tokens, B, S, P, C, global_idx, pos=pos
                     )
                 else:
-                    raise ValueError(f"Unknown attention type: {attn_type}")
-
+                    raise ValueError(f"Unknown attention type: {attn_type}") 
             if intermediate_layer_idx is not None:
                 for i in range(len(frame_intermediates)):
                     current_layer = layer_idx + i
@@ -268,6 +377,12 @@ class Aggregator(nn.Module):
                         # concat frame and global intermediates, [B x S x P x 2C]
                         concat_inter = torch.cat([frame_intermediates[i], global_intermediates[i]], dim=-1)
                         output_list.append(concat_inter)
+                        
+                        #TODO: use dino feature only or not
+                        concat_inter_with_tokens = torch.cat([dino_token_list[i], frame_intermediates[i], global_intermediates[i]], dim=-1)
+                        #concat_inter_with_tokens = dino_token_list[i]
+                        output_list_with_tokens.append(concat_inter_with_tokens)
+                        
                 layer_idx += self.aa_block_size
             
             else:
@@ -275,12 +390,19 @@ class Aggregator(nn.Module):
                     # concat frame and global intermediates, [B x S x P x 2C]
                     concat_inter = torch.cat([frame_intermediates[i], global_intermediates[i]], dim=-1)
                     output_list.append(concat_inter)
+                    #TODO: use dino feature only or not
+                    concat_inter_with_tokens = torch.cat([dino_token_list[i], frame_intermediates[i], global_intermediates[i]], dim=-1)
+                    #concat_inter_with_tokens = dino_token_list[i]
+                    output_list_with_tokens.append(concat_inter_with_tokens)
         
         del concat_inter
         del frame_intermediates
         del global_intermediates
-        return output_list, self.patch_start_idx
-
+        del concat_inter_with_tokens
+        # del dino_token_list
+        # return output_list, self.patch_start_idx
+        return output_list, output_list_with_tokens, dino_token_list, self.patch_start_idx
+    
     def _process_frame_attention(self, tokens, B, S, P, C, frame_idx, pos=None):
         """
         Process frame attention blocks. We keep tokens in shape (B*S, P, C).

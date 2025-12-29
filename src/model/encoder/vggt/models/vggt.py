@@ -60,8 +60,9 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
         if query_points is not None and len(query_points.shape) == 2:
             query_points = query_points.unsqueeze(0)
 
-        aggregated_tokens_list, patch_start_idx = self.aggregator(images)
-
+        # aggregated_tokens_list, patch_start_idx = self.aggregator(images)
+        aggregated_tokens_list, image_tokens_list, dino_token_list, patch_start_idx = self.aggregator(images)
+        
         predictions = {}
 
         with torch.cuda.amp.autocast(enabled=False):
