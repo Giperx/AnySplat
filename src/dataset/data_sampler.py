@@ -298,6 +298,8 @@ class MixedBatchSampler(BatchSampler):
                 ds.epoch = 0
             if hasattr(ds, "set_epoch"):
                 ds.set_epoch(0)
+            # print("*********ds.cfg.view_sampler.num_context_views:", ds.cfg.view_sampler.num_context_views)
+            # print("*********ds.cfg.view_sampler.num_target_views:", ds.cfg.view_sampler.num_target_views)
             batch_sampler = DynamicBatchSampler(
                 sampler, 
                 # [2, ds.cfg.view_sampler.num_context_views], 

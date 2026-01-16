@@ -15,7 +15,8 @@ def get_normal_map(depth_map: torch.Tensor, intrinsic: torch.Tensor) -> torch.Te
     B, H, W = depth_map.shape
     assert intrinsic.shape == (B, 3, 3), "Intrinsic matrix must be Bx3x3"
     assert (intrinsic[:, 0, 1] == 0).all() and (intrinsic[:, 1, 0] == 0).all(), "Intrinsic matrix must have zero skew"
-
+    # print(intrinsic)
+    # assert (intrinsic[:, 0, 1].abs() < 1e-5).all(), "Intrinsic matrix skew is too large"
     # Intrinsic parameters
     fu = intrinsic[:, 0, 0] * W  # (B,)
     fv = intrinsic[:, 1, 1] * H  # (B,)

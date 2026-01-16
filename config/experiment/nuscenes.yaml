@@ -4,13 +4,13 @@ defaults:
   - /dataset@_group_.nuscenes: nuscenes
   - override /model/encoder: anysplat
   - override /model/encoder/backbone: croco
-  - override /loss: [mse, lpips, depth_consis] # ablate: opacity loss
+  - override /loss: [mse, lpips, depth_consis, dynamic_mask] # ablate: opacity loss
 
 wandb:
   project: anysplat_1218
   name: nuScenes_reTrain
-  tags: [nuScenes, 448]
-  mode: online
+  tags: [nuScenes, 224x224]
+  mode: offline # online
   
 model:
   encoder:
@@ -27,10 +27,10 @@ model:
     freeze_backbone: false
     useVGGT: true # use vggt pretrained weights or anysplat pretrained weights
     distill: true
-    frozenAggregator: false
+    frozenAggregator: true
     frozenGaussianHead: false
-    frozenCameraHead: false
-    frozenDepthHead: false
+    frozenCameraHead: true
+    frozenDepthHead: true
     render_conf: false
     conf_threshold: 0.1
     freeze_module: patch_embed
@@ -39,20 +39,20 @@ model:
     
 dataset:
   nuscenes:
-    input_image_shape: [448, 448]
+    input_image_shape: [336, 336]
     view_sampler:
-      num_context_views: 6 # keep same with numTimes x 3
-      num_target_views: 1
+      num_context_views: 9 # keep same with numTimes x 3
+      num_target_views: 3
       # min_distance_between_context_views: 32
       # max_distance_between_context_views: 256
-      max_img_per_gpu: 6
+      max_img_per_gpu: 9
     avg_pose: false
     intr_augment: false
     normalize_by_pts3d: false
     rescale_to_1cube: false
 
 optimizer:
-  lr: 3.125e-6 #1.25e-6 5e-5 #2e-4
+  lr: 3.125e-6 #1.25e-6 5e-5 #2e-4 and 24 per gpu, 16 gpus
   warm_up_steps: 3000
   backbone_lr_multiplier: 0.1 #0.1
 
@@ -62,14 +62,15 @@ data_loader:
     
 trainer:
   max_steps: 30000
-  val_check_interval: 3000
+  val_check_interval: 300
   num_nodes: 1
   accumulate_grad_batches: 1
   precision: bf16-mixed #"32"
 
 checkpointing:
-  load: null
-  # load: anysplat_hfog_1108
+  # load: null
+  load: anysplat_hfog_1108
+  flag_gaussian_head: true
   every_n_train_steps: 5000
   save_weights_only: false
   save_top_k: 100
@@ -78,8 +79,8 @@ train:
   pose_loss_alpha: 1.0
   pose_loss_delta: 1.0
   cxt_depth_weight: 0.0
-  weight_pose: 10.0
-  weight_depth: 1.0 # 1.0
+  weight_pose: 0.0 #10.0
+  weight_depth: 0.0 #1.0 # 1.0
   weight_normal: 0.0
 
 hydra:
@@ -96,5 +97,8 @@ loss:
   depth_consis:
     weight: 0.1 # 
     loss_type: MSE
+  dynamic_mask:
+    weight: 0.1 # focal:1.0 ; 若动态物体面积小则需要更大权重0.5
+    mode: bce
 
 

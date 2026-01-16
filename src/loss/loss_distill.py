@@ -133,7 +133,7 @@ class DistillLoss(nn.Module):
 
         render_normal = get_normal_map(pred_depth, batch["context"]["intrinsics"].flatten(0, 1))
         pred_normal = get_normal_map(pesudo_gt_depth, batch["context"]["intrinsics"].flatten(0, 1))
-        
+       
         alpha1_loss = (1 - (render_normal[conf_mask] * pred_normal[conf_mask]).sum(-1)).mean()
         alpha2_loss = F.l1_loss(render_normal[conf_mask], pred_normal[conf_mask], reduction='mean')
         loss_normal = (alpha1_loss + alpha2_loss) / 2

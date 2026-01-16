@@ -39,7 +39,6 @@ class DatasetNuScenesCfg(DatasetCfgCommon):
     rescale_to_1cube: bool
     intr_augment: bool
     normalize_by_pts3d: bool
-    max_image_h: int
     numTimes: int = 1  # Number of consecutive timestamps to load
 
 
@@ -68,7 +67,7 @@ class DatasetNuScenes(Dataset):
     far: float = 100.0
     
     # Target size for resizing
-    TARGET_SIZE = 448
+    TARGET_SIZE = 336  # 224 336 448
     
     # Camera mapping based on file naming convention {timestep}_{cam_id}.jpg
     # 0: CAM_FRONT
@@ -80,7 +79,7 @@ class DatasetNuScenes(Dataset):
     
     # Camera groups for sampling
     CAM_GROUP_FRONT = [0, 1, 2] # FRONT, FRONT_LEFT, FRONT_RIGHT
-    CAM_GROUP_BACK = [5, 4, 3]  # BACK, BACK_LEFT, BACK_RIGHT (Ordered for visual consistency if needed)
+    CAM_GROUP_BACK = [5, 4, 3]  # BACK, BACK_RIGHT, BACK_LEFT (Ordered for visual consistency if needed)
 
     def __init__(
         self,
@@ -102,7 +101,10 @@ class DatasetNuScenes(Dataset):
         if self.stage == "train":
             self.scene_ids = self._load_split_file(cfg.split_file_path)
         else:
-            self.scene_ids = self._load_split_file(cfg.split_file_path.replace("Train", "Val"))
+            # self.scene_ids = self._load_split_file(cfg.split_file_path.replace("Train", "Val"))
+            
+            new_path = Path(str(cfg.split_file_path).replace("Train", "Val"))
+            self.scene_ids = self._load_split_file(new_path)
         
         # Build index of valid samples
         # Each sample is (scene_id, start_timestep_index, camera_group_type)
@@ -201,20 +203,43 @@ class DatasetNuScenes(Dataset):
         Format: 3x3 matrix values separated by newlines or flattened.
         Example provided suggests 9 lines of floats.
         """
+        # file_path = scene_path / "intrinsics" / f"{cam_id}.txt"
+        # try:
+        #     with open(file_path, 'r') as f:
+        #         lines = [float(line.strip()) for line in f if line.strip()]
+            
+        #     if len(lines) != 9:
+        #         raise ValueError(f"Expected 9 values for intrinsic matrix, got {len(lines)}")
+            
+        #     intr = np.array(lines, dtype=np.float32).reshape(3, 3)
+        #     return intr
+        # except Exception as e:
+        #     logger.error(f"Error reading intrinsics {file_path}: {e}")
+        #     raise
         file_path = scene_path / "intrinsics" / f"{cam_id}.txt"
         try:
             with open(file_path, 'r') as f:
-                lines = [float(line.strip()) for line in f if line.strip()]
+                v = [float(line.strip()) for line in f if line.strip()]
             
-            if len(lines) != 9:
-                raise ValueError(f"Expected 9 values for intrinsic matrix, got {len(lines)}")
+            # 构造标准的 3x3 矩阵
+            intr = np.eye(3, dtype=np.float32)
             
-            intr = np.array(lines, dtype=np.float32).reshape(3, 3)
+            if len(v) == 9:
+                # 如果这 9 个数其实是 [fx, 0, cx, 0, fy, cy, 0, 0, 1] 这种排列
+                # 或者如果是 [fx, fy, cx, cy, ...] 这种排列：
+                # 根据你 txt 的内容，最稳妥的映射方式是：
+                intr[0, 0] = v[0] # fx
+                intr[1, 1] = v[1] # fy
+                intr[0, 2] = v[2] # cx
+                intr[1, 2] = v[3] # cy
+            else:
+                # 兼容其他长度
+                intr = np.array(v).reshape(3, 3)
+                
             return intr
         except Exception as e:
             logger.error(f"Error reading intrinsics {file_path}: {e}")
             raise
-
     def _read_extrinsics(self, scene_path: Path, timestep: int, cam_id: int) -> np.ndarray:
         """
         Read extrinsic txt file.
@@ -242,8 +267,8 @@ class DatasetNuScenes(Dataset):
         return self.to_tensor(image)
 
     def _load_mask(self, scene_path: Path, timestep: int, cam_id: int) -> torch.Tensor:
-        file_path = scene_path / "fine_dynamic_masks" / "all" / f"{timestep:03d}_{cam_id}.png"
-        
+        # file_path = scene_path / "fine_dynamic_masks" / "all" / f"{timestep:03d}_{cam_id}.png"
+        file_path = scene_path / "fine_dynamic_masks" / f"{timestep:03d}_{cam_id}.png"
         if not file_path.exists():
             # If mask doesn't exist, return ones (all valid) or zeros depending on usage
             # Assuming 1 is valid/static, 0 is dynamic/masked? Or vice versa.
@@ -422,7 +447,7 @@ class DatasetNuScenes(Dataset):
                     "index": indices,
                 }
 
-            scene_id = scene_id + f"_ts{timesteps[0]:03d}"
+            scene_id = scene_id + f"_ts{timesteps[0]:03d}_grp{'F' if use_front_group else 'B'}"
             example = {
                 "context": build_subset(context_indices),
                 "target": build_subset(target_indices),
@@ -434,6 +459,14 @@ class DatasetNuScenes(Dataset):
                 example = apply_augmentation_shim(example)
 
             ### delete crop shims
+            
+            # 占位符 3D 点和掩码
+            context_valid_mask = torch.ones_like(example["context"]["image"])[:, 0].bool()
+            
+            target_valid_mask = torch.ones_like(example["context"]["image"])[:, 0].bool()
+            
+            example["context"]["valid_mask"] = context_valid_mask * 0 # 返回后续使用时，有batch维度，b v h w
+            example["target"]["valid_mask"] = target_valid_mask * 0
             
             return example
 

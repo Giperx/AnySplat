@@ -108,6 +108,7 @@ class LossDepthConsis(Loss[LossDepthConsisCfg, LossDepthConsisCfgWrapper]):
         gaussians: Gaussians,
         depth_dict: dict,
         global_step: int,
+        static_flag: bool = False, # 区分当前帧和历史帧
     ) -> Float[Tensor, ""]:
         
         # Before the specified step, don't apply the loss.
@@ -115,20 +116,64 @@ class LossDepthConsis(Loss[LossDepthConsisCfg, LossDepthConsisCfgWrapper]):
             return torch.tensor(0.0, dtype=torch.float32, device=prediction.depth.device)
         
         # Scale the depth between the near and far planes.
-        # conf_valid_mask = depth_dict['conf_valid_mask']
+        using_index = batch.get("using_index")
+        if not static_flag:
+            using_index = using_index[:3]  # only first three views for current frame
+            
         rendered_depth = prediction.depth
         gt_rgb = (batch["context"]["image"] + 1) / 2
-        valid_mask = depth_dict["distill_infos"]['conf_mask']
-
-        if batch['context']['valid_mask'].sum() > 0:
-            valid_mask = batch['context']['valid_mask']
-        # if self.cfg.conf:
-        #     valid_mask = valid_mask & conf_valid_mask
-        if self.cfg.not_use_valid_mask:
-            valid_mask = torch.ones_like(valid_mask, device=valid_mask.device)
         pred_depth = depth_dict['depth'].squeeze(-1)
-        if self.cfg.detach:
-            pred_depth = pred_depth.detach()
+        valid_mask = depth_dict["distill_infos"]['conf_mask'] # (B, V, H, W)
+
+        if using_index is not None:
+            rendered_depth = rendered_depth[:, using_index]
+            gt_rgb = gt_rgb[:, using_index]
+            pred_depth = pred_depth[:, using_index]
+            valid_mask = valid_mask[:, using_index]
+
+        if valid_mask.dim() == 5:
+            valid_mask = valid_mask.squeeze(2)
+
+        context_valid_mask = batch['context']['valid_mask']
+        if using_index is not None:
+            context_valid_mask = context_valid_mask[:, using_index]
+        if context_valid_mask.dim() == 5:
+            context_valid_mask = context_valid_mask.squeeze(2)
+        context_valid_mask = context_valid_mask.bool()
+
+        if context_valid_mask.sum() > 0:
+            valid_mask = context_valid_mask
+
+        valid_mask = valid_mask.bool()
+
+        if depth_dict is not None and 'dynamic_conf' in depth_dict and static_flag:
+            dynamic_conf = depth_dict['dynamic_conf']
+            if using_index is not None:
+                dynamic_conf = dynamic_conf[:, using_index]
+            if dynamic_conf.dim() == 5:
+                dynamic_conf = dynamic_conf.squeeze(2)
+            static_mask = (dynamic_conf < 0.5).bool()
+            valid_mask = valid_mask & static_mask
+
+        total_views = rendered_depth.shape[1]
+        max_views = min(total_views, 3)
+        if static_flag:
+            view_slice = slice(max_views, total_views)
+        else:
+            view_slice = slice(0, max_views)
+
+        rendered_depth = rendered_depth[:, view_slice]
+        pred_depth = pred_depth[:, view_slice]
+        valid_mask = valid_mask[:, view_slice]
+        gt_rgb = gt_rgb[:, view_slice]
+
+        if self.cfg.not_use_valid_mask:
+            valid_mask = torch.ones_like(valid_mask, dtype=torch.bool, device=valid_mask.device)
+
+        if rendered_depth.shape[1] == 0 or valid_mask.sum() == 0:
+            return torch.tensor(0.0, dtype=torch.float32, device=rendered_depth.device)
+
+        pred_depth = pred_depth.detach() if self.cfg.detach else pred_depth
         if self.cfg.loss_type == 'MSE':
             depth_loss = F.mse_loss(rendered_depth, pred_depth, reduction='none')[valid_mask].mean()
         elif self.cfg.loss_type == 'EdgeAwareLogL1':

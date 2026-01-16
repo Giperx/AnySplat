@@ -19,6 +19,7 @@ class CheckpointingCfg:
     every_n_train_steps: int
     save_top_k: int
     save_weights_only: bool
+    flag_gaussian_head: bool = False
 
 
 @dataclass

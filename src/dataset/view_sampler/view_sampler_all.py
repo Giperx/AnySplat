@@ -11,6 +11,9 @@ from .view_sampler import ViewSampler
 @dataclass
 class ViewSamplerAllCfg:
     name: Literal["all"]
+    num_context_views: int
+    num_target_views: int
+    max_img_per_gpu: int
 
 
 class ViewSamplerAll(ViewSampler[ViewSamplerAllCfg]):
@@ -30,8 +33,8 @@ class ViewSamplerAll(ViewSampler[ViewSamplerAllCfg]):
 
     @property
     def num_context_views(self) -> int:
-        return 0
+        return self.cfg.num_context_views
 
     @property
     def num_target_views(self) -> int:
-        return 0
+        return self.cfg.num_target_views

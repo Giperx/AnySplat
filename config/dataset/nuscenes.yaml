@@ -5,9 +5,9 @@ defaults:
 name: nuscenes
 roots: [datasets/nuscenes/processed_10Hz/trainval]
 split_file_path: nuScenes_Train.txt
-numTimes: 2  # total number of timesteps in each scene
+numTimes: 3  # total number of timesteps in each scene
 
-input_image_shape: [448, 448] # not used here
+input_image_shape: [336, 336] # not used here
 original_image_shape: [900, 1600] # 252x448
 cameras_are_circular: false
 

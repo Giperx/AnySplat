@@ -194,3 +194,6 @@ anysplat_ckpt*
 input_images_*
 tmp_scripts/
 *v2*
+src/model/encoder/anysplat_back260105.py
+anysplat_hfog_1108
+src/model/encoder/anysplat_back260109.py

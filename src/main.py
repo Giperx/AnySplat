@@ -14,12 +14,12 @@ from lightning.pytorch.plugins.environments import SLURMEnvironment
 from lightning.pytorch.strategies import DeepSpeedStrategy
 from omegaconf import DictConfig, OmegaConf
 from hydra.core.hydra_config import HydraConfig
-from src.misc.hf_checkpoint_loader import prepare_checkpoint_path
 
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.model.model import get_model
 from src.misc.weight_modify import checkpoint_filter_fn
+from src.misc.hf_checkpoint_loader import prepare_checkpoint_path
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -105,7 +105,7 @@ def train(cfg_dict: DictConfig):
     trainer = Trainer(
         max_epochs=-1,
         num_nodes=cfg.trainer.num_nodes,
-        # num_sanity_val_steps=0,
+        # num_sanity_val_steps=0, # -1 means val all at the beginning
         accelerator="gpu",
         logger=logger,
         devices="auto",
@@ -141,7 +141,11 @@ def train(cfg_dict: DictConfig):
     
     # 处理 HuggingFace 或 Lightning 检查点
     checkpoint_path = cfg.checkpointing.load
+    # print("flag_gaussian_head:cfg.checkpointing.flag_gaussian_head:", cfg.checkpointing.flag_gaussian_head)
+    flag_gaussian_head = getattr(cfg.checkpointing, "flag_gaussian_head", False)
+    # print("flag_gaussian_head:----------", flag_gaussian_head)
     checkpoint_path_for_lightning, is_hf_pretrained = prepare_checkpoint_path(
+        flag_gaussian_head,
         checkpoint_path,
         model=model_wrapper.model if checkpoint_path else None,
     )

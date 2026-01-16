@@ -108,13 +108,42 @@ class AnySplat(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         visualization_dump: Optional[dict] = None,
         near: float = 0.01,
         far: float = 100.0,
+        wide_fov: bool = False,
+        new_width: Optional[int] = None,
+        # current_timeFrame_flag: bool = True
     ):
         b, v, c, h, w = context_image.shape
         device = context_image.device
         encoder_output = self.encoder(context_image, global_step, visualization_dump=visualization_dump)
-        gaussians, pred_context_pose = encoder_output.gaussians, encoder_output.pred_context_pose
+        gaussians, static_gaussians, pred_context_pose = encoder_output.gaussians, encoder_output.static_gaussians, encoder_output.pred_context_pose
+        
+        if wide_fov and new_width is not None:
+            ### add for wide fov rendering
+            # 1. 准备新的内参矩阵
+            # new_pred_all_intrinsic = pred_context_pose["intrinsic"].clone()
+            # 2. 计算宽度比例
+            width_scale = w / new_width
+            # 3. 只修改归一化内参的 fx 部分
+            # new_pred_all_intrinsic[..., 0, 0] 是 fx_norm
+            pred_context_pose["intrinsic"][..., 0, 0] = pred_context_pose["intrinsic"][..., 0, 0] * width_scale
+            w = new_width
+            # print("intrinsic_newCalculate:", intrinsic_newCalculate)
+            # print("new_pred_all_intrinsic:", new_pred_all_intrinsic)
+            # print("extrinsic_newCalculate:", extrinsic_newCalculate)
+            # print("pred_context_pose['extrinsic']:", pred_context_pose['extrinsic'])
+        # if current_timeFrame_flag: # 当前帧是需要动静部分的
         output = self.decoder.forward(
             gaussians,
+            pred_context_pose['extrinsic'][:, :3, ...],
+            pred_context_pose["intrinsic"][:, :3, ...],
+            torch.ones(1, v, device=device) * near,
+            torch.ones(1, v, device=device) * far,
+            (h, w),
+            "depth",
+        )      
+        # else:                   # 历史帧，只需要静态部分
+        output_static = self.decoder.forward(
+            static_gaussians,
             pred_context_pose['extrinsic'],
             pred_context_pose["intrinsic"],
             torch.ones(1, v, device=device) * near,
@@ -122,5 +151,5 @@ class AnySplat(nn.Module, huggingface_hub.PyTorchModelHubMixin):
             (h, w),
             "depth",
         )
-        return encoder_output, output
+        return encoder_output, output, output_static
     

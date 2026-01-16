@@ -58,6 +58,7 @@ def is_lightning_checkpoint(path: str) -> bool:
 
 
 def load_hf_model_weights(
+    flag_gaussian_head: bool,
     model: Module,
     hf_model_path: str,
     strict: bool = False,
@@ -105,10 +106,21 @@ def load_hf_model_weights(
     
     # Filter state_dict to only include specific components
     target_components = ["aggregator", "camera_head", "depth_head"]
+    if flag_gaussian_head:
+        target_components.append("gaussian_param_head")
     filtered_state_dict = {}
     for k, v in state_dict.items():
+        # 2. 检查键名是否包含目标组件
         if any(component in k for component in target_components):
-            filtered_state_dict[k] = v
+            # 3. 核心修复：如果 model 对象内部没有 encoder 层级，需要去掉 'encoder.' 前缀
+            # 建议增加一个判断或统一处理
+            new_key = k
+            if k.startswith("encoder."):
+                # 只有当你发现加载时 Missing Keys 很多，才启用下面这行代码
+                # new_key = k.replace("encoder.", "", 1) 
+                pass
+            
+            filtered_state_dict[new_key] = v
             
     logger.info(f"Filtered weights to only include: {target_components}")
     logger.info(f"Kept {len(filtered_state_dict)}/{len(state_dict)} keys")
@@ -130,6 +142,7 @@ def load_hf_model_weights(
 
 
 def prepare_checkpoint_path(
+    flag_gaussian_head: bool,
     checkpoint_path: Optional[str],
     model: Optional[Module] = None,
 ) -> tuple[Optional[str], bool]:
@@ -161,7 +174,7 @@ def prepare_checkpoint_path(
         logger.info(f"Detected HuggingFace model directory: {checkpoint_path}")
         
         if model is not None:
-            load_hf_model_weights(model, checkpoint_path, strict=False)
+            load_hf_model_weights(flag_gaussian_head, model, checkpoint_path, strict=False)
         
         # Return None so Lightning doesn't try to load it as a checkpoint
         return None, True
