@@ -93,10 +93,10 @@ class EncoderAnySplatCfg:
     pretrained_weights: str = ""
     pose_free: bool = True
     pred_pose: bool = True
-    frozenAggregator = False
-    frozenGaussianHead = False
-    frozenCameraHead = False
-    frozenDepthHead = False
+    frozenAggregator: bool = False
+    frozenGaussianHead: bool = False
+    frozenCameraHead: bool = False
+    frozenDepthHead: bool = False
     gt_pose_to_pts: bool = False
     gs_prune: bool = False
     opacity_threshold: float = 0.001
@@ -227,7 +227,11 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         # self.gs_head = GaussianHead(dim_in= 3 * head_params.enc_embed_dim, output_dim=3 + 1 + 3 + 4 + 1, activation="sigmoid", feature_only=True)# ,down_ratio=2)#RGB
         self.dynamic_head = DPTHeadDGGT(dim_in= 1024, output_dim = 1 + 1, activation="linear") # ,down_ratio=2)#RGB
         
-        
+        print("self.frozenAggregator:", self.frozenAggregator,
+              "self.frozenGaussianHead:", self.frozenGaussianHead,
+              "self.frozenCameraHead:", self.frozenCameraHead,
+              "self.frozenDepthHead:", self.frozenDepthHead,
+        )
         ### Freeze specific components
         if self.frozenAggregator:
             for param in self.aggregator.parameters():
@@ -242,6 +246,26 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
             for param in self.depth_head.parameters():
                 param.requires_grad = False
 
+
+    ### add pretrained weights loading pretrain AnySplat model
+    def usePreTrainedWeights(self):
+        print("self.frozenAggregator:", self.frozenAggregator,
+              "self.frozenGaussianHead:", self.frozenGaussianHead,
+              "self.frozenCameraHead:", self.frozenCameraHead,
+              "self.frozenDepthHead:", self.frozenDepthHead,
+        )
+        if self.frozenAggregator:
+            for param in self.aggregator.parameters():
+                param.requires_grad = False
+        if self.frozenGaussianHead:
+            for param in self.gaussian_param_head.parameters():
+                param.requires_grad = False
+        if self.frozenCameraHead:
+            for param in self.camera_head.parameters():
+                param.requires_grad = False
+        if self.frozenDepthHead:
+            for param in self.depth_head.parameters():
+                param.requires_grad = False
 
     def map_pdf_to_opacity(
         self,
@@ -497,7 +521,7 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         
         ### infer gs_head like DGGT
         # out = self.gs_head(image_tokens_list, image, patch_start_idx)
-        # dynamic_conf: (B*V, 1, H, W) or (B, V, 1, H, W) depending on implementation
+        # dynamic_conf: (B, V, H, W, 1) depending on implementation
         dynamic_conf, _ = self.dynamic_head(dino_token_list, image, patch_start_idx)
         # print("*******dynamic_conf shape:", dynamic_conf.shape) # torch.Size([1, 6, 224, 224, 1])
         
@@ -510,7 +534,7 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         # 确保 dynamic_conf 维度正确 (B, V, H, W)
         if dynamic_conf.dim() == 4 and dynamic_conf.shape[0] == b * v:
              dynamic_conf = rearrange(dynamic_conf, "(b v) 1 h w -> b v h w", b=b, v=v)
-        elif dynamic_conf.dim() == 5:
+        elif dynamic_conf.dim() == 5: # run in here line
              dynamic_conf = dynamic_conf.squeeze(4) # (B, V, H, W)
              
         infos = {}

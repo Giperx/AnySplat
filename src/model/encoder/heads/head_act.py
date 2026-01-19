@@ -7,7 +7,7 @@
 
 import torch
 import torch.nn.functional as F 
-from IPython import embed
+# from IPython import embed
 
 def activate_pose(pred_pose_enc, trans_act="linear", quat_act="linear", fl_act="linear"):
     """

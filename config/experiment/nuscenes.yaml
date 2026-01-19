@@ -7,10 +7,10 @@ defaults:
   - override /loss: [mse, lpips, depth_consis, dynamic_mask] # ablate: opacity loss
 
 wandb:
-  project: anysplat_1218
+  project: anysplat_0119
   name: nuScenes_reTrain
-  tags: [nuScenes, 224x224]
-  mode: offline # online
+  tags: [nuScenes, 252x448]
+  mode: disabled # online offline disabled
   
 model:
   encoder:
@@ -25,7 +25,7 @@ model:
     gs_prune: false # ablate: opacity loss
     pred_head_type: depth
     freeze_backbone: false
-    useVGGT: true # use vggt pretrained weights or anysplat pretrained weights
+    # useVGGT: true # use vggt pretrained weights or anysplat pretrained weights
     distill: true
     frozenAggregator: true
     frozenGaussianHead: false
@@ -33,13 +33,13 @@ model:
     frozenDepthHead: true
     render_conf: false
     conf_threshold: 0.1
-    freeze_module: patch_embed
+    freeze_module: all
     voxelize: true
     intermediate_layer_idx: [4, 11, 17, 23]
     
 dataset:
   nuscenes:
-    input_image_shape: [336, 336]
+    input_image_shape: [252, 448]
     view_sampler:
       num_context_views: 9 # keep same with numTimes x 3
       num_target_views: 3
@@ -62,7 +62,7 @@ data_loader:
     
 trainer:
   max_steps: 30000
-  val_check_interval: 300
+  val_check_interval: 3000
   num_nodes: 1
   accumulate_grad_batches: 1
   precision: bf16-mixed #"32"
@@ -70,6 +70,7 @@ trainer:
 checkpointing:
   # load: null
   load: anysplat_hfog_1108
+  log_save_dir: outputs/exp_local/${now:%Y-%m-%d_%H-%M-%S}
   flag_gaussian_head: true
   every_n_train_steps: 5000
   save_weights_only: false
@@ -98,7 +99,7 @@ loss:
     weight: 0.1 # 
     loss_type: MSE
   dynamic_mask:
-    weight: 0.1 # focal:1.0 ; 若动态物体面积小则需要更大权重0.5
+    weight: 0.5 # focal:1.0 ; 若动态物体面积小则需要更大权重0.5
     mode: bce
 
 

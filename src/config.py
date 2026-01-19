@@ -20,6 +20,7 @@ class CheckpointingCfg:
     save_top_k: int
     save_weights_only: bool
     flag_gaussian_head: bool = False
+    log_save_dir: Optional[Path] = None
 
 
 @dataclass

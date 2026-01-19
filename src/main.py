@@ -81,7 +81,15 @@ def train(cfg_dict: DictConfig):
         if wandb.run is not None:
             wandb.run.log_code("src")
     else:
-        logger = LocalLogger()
+        from datetime import datetime
+        real_now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        old_dir = str(cfg.checkpointing.log_save_dir) 
+        log_dir = old_dir.replace(
+            "${now:%Y-%m-%d_%H-%M-%S}",  # 旧时间戳
+            real_now                                        # 新时间戳（可改格式）
+        )
+        logger = LocalLogger(log_dir)
+        # logger = LocalLogger(cfg.checkpointing.log_save_dir)
     
     # Set up checkpointing.
     callbacks.append(
@@ -155,6 +163,8 @@ def train(cfg_dict: DictConfig):
         # 不传递 checkpoint_path 给 trainer，因为它是个目录
         checkpoint_path_for_lightning = None
         
+    model_wrapper.model.encoder.usePreTrainedWeights()
+
     data_module = DataModule(
         cfg.dataset,
         cfg.data_loader,

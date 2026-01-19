@@ -561,11 +561,24 @@ class ModelWrapper(LightningModule):
         # 4. 转换成列表形式以便 vcat 处理
         dynamic_mask_list = [dynamic_mask[i] for i in range(dynamic_mask.shape[0])]
         
+        
+        ### 增加GT mask的可视化
+        gt_mask = batch["context"]["fine_dynamic_masks"][0][:3] # b, v, 1, h, w
+        # print("****gt_mask shape:", gt_mask.shape)
+        if gt_mask.dim() == 4 and gt_mask.shape[1] == 1:
+            gt_mask = gt_mask.repeat(1, 3, 1, 1)  # -> (V, 3, H, W)
+            # 0-1 -> 0-255 uint8
+            gt_mask = (gt_mask * 255).clamp(0, 255).byte()
+            # 再变回 0-1 浮点，但值只有 0/1 对应 0/255
+            gt_mask = gt_mask.float() / 255.0 ### TODO: 保存的图片还是全白色的
+        gt_dynamic_mask_list = [gt_mask[i] for i in range(gt_mask.shape[0])]
+    
         comparison = hcat(
             add_label(vcat(*context), "Context"),
             # add_label(vcat(*rgb_gt), "Target (Ground Truth)"),
             add_label(vcat(*rgb_pred), "Target (Prediction)"),
-            add_label(vcat(*dynamic_mask_list), "Dynamic Mask"),
+            add_label(vcat(*gt_dynamic_mask_list), "Dynamic Mask(GT)"),
+            add_label(vcat(*dynamic_mask_list), "Dynamic Mask(Pred)"),
             add_label(vcat(*depth_pred), "Depth (Prediction)"),
             add_label(vcat(*model_depth_pred), "Depth (Aggregator Prediction)"),
             add_label(vcat(*render_normal), "Normal (Prediction)"),
@@ -584,7 +597,7 @@ class ModelWrapper(LightningModule):
             f"{batch_idx}_{batch['scene'][0]}",
             [prep_image(add_border(comparison))],
             step=self.global_step,
-            caption=batch["scene"],
+            captions=batch["scene"],
         )
 
         context_static = []
@@ -609,12 +622,22 @@ class ModelWrapper(LightningModule):
             dynamic_mask_his = dynamic_mask_his.repeat(1, 3, 1, 1)
         # 4. 转换成列表形式以便 vcat 处理
         dynamic_mask_list_his = [dynamic_mask_his[i] for i in range(dynamic_mask_his.shape[0])]
-        
+
+        ### 增加GT mask的可视化
+        gt_mask = batch["context"]["fine_dynamic_masks"][0][3:] # b, v, 1, h, w
+        if gt_mask.dim() == 4 and gt_mask.shape[1] == 1:
+            gt_mask = gt_mask.repeat(1, 3, 1, 1)  # -> (V, 3, H, W)
+            # 0-1 -> 0-255 uint8
+            gt_mask = (gt_mask * 255).clamp(0, 255).byte()
+            # 再变回 0-1 浮点，但值只有 0/1 对应 0/255
+            gt_mask = gt_mask.float() / 255.0
+        gt_dynamic_mask_list_his = [gt_mask[i] for i in range(gt_mask.shape[0])]
         
         comparison_static = hcat(
             add_label(vcat(*context_static), "Context_History_Static"),
             add_label(vcat(*rgb_pred_static), "Target (Prediction)"),
-            add_label(vcat(*dynamic_mask_list_his), "Dynamic Mask"),
+            add_label(vcat(*gt_dynamic_mask_list_his), "Dynamic Mask(GT)"),
+            add_label(vcat(*dynamic_mask_list_his), "Dynamic Mask(Pred)"),
         )
 
         comparison_static = torch.nn.functional.interpolate(
@@ -628,7 +651,7 @@ class ModelWrapper(LightningModule):
             f"{batch_idx}_static_{batch['scene'][0]}",
             [prep_image(add_border(comparison_static))],
             step=self.global_step,
-            caption=batch["scene"],
+            captions=batch["scene"],
         )        
 
         # self.logger.log_image(
@@ -703,7 +726,7 @@ class ModelWrapper(LightningModule):
             f"{batch_idx}_wide_{batch['scene'][0]}",
             [prep_image(add_border(comparison_wide))],
             step=self.global_step,
-            caption=batch["scene"],
+            captions=batch["scene"],
         )
 
         if self.encoder_visualizer is not None:
@@ -718,6 +741,7 @@ class ModelWrapper(LightningModule):
         # if self.train_cfg.extended_visualization:
         #     self.render_video_interpolation_exaggerated(batch)
         self.render_video_interpolation(batch, pred_context_pose, usePredPose=True, start_idx=-2, end_idx=2, camsName="LastLeft2FirstRight", number_frames=120)
+        torch.cuda.empty_cache()
 
     @rank_zero_only
     def render_video_wobble(self, batch: BatchedExample) -> None:

@@ -44,14 +44,14 @@ class LossDynamicMask(Loss[LossDynamicMaskCfg, LossDynamicMaskCfgWrapper]):
             # 且值范围应该是 [0, 1] (经过 Sigmoid)
 
         # 2. 获取 GT Mask
-        # shape 为 (B, V, 1, H, W) 或堆叠后的 (N_views, 1, H, W)
+        # shape 为 (B, V, 1, H, W)
         # 注意：dataset 中 images 是 stack 起来的，这里 batch['context'] 中的数据结构通常是 (B, V, ...)
         gt_mask = batch["context"]["fine_dynamic_masks"]
 
         # 3. 对齐维度
         # 如果 pred 是 (B, V, H, W)，需要增加一个通道维度匹配 GT
         if pred_mask.dim() == 4 and gt_mask.dim() == 5:
-            pred_mask = pred_mask.unsqueeze(2)  # (B, V, 1, H, W)
+            pred_mask = pred_mask.unsqueeze(2)  # (B, V, 1, H, W) # TODO check here whether run in
         
         if pred_mask.dim() == 5 and gt_mask.dim() == 4:
             gt_mask = gt_mask.unsqueeze(2)  # (B, V, 1, H, W)

@@ -67,7 +67,9 @@ class DatasetNuScenes(Dataset):
     far: float = 100.0
     
     # Target size for resizing
-    TARGET_SIZE = 336  # 224 336 448
+    # TARGET_SIZE = 224  # 224 336 448
+    TARGET_HEIGHT = 252
+    TARGET_WIDTH = 448
     
     # Camera mapping based on file naming convention {timestep}_{cam_id}.jpg
     # 0: CAM_FRONT
@@ -261,8 +263,10 @@ class DatasetNuScenes(Dataset):
         image = Image.open(file_path).convert('RGB')
         
         # Resize logic
-        if self.cfg.input_image_shape[0] == self.TARGET_SIZE and self.cfg.input_image_shape[1] == self.TARGET_SIZE:
-            image = image.resize((self.TARGET_SIZE, self.TARGET_SIZE), Image.BILINEAR)
+        # if self.cfg.input_image_shape[0] == self.TARGET_SIZE and self.cfg.input_image_shape[1] == self.TARGET_SIZE:
+        #     image = image.resize((self.TARGET_SIZE, self.TARGET_SIZE), Image.BILINEAR)
+        if self.cfg.input_image_shape[0] == self.TARGET_HEIGHT and self.cfg.input_image_shape[1] == self.TARGET_WIDTH:
+            image = image.resize((self.TARGET_WIDTH, self.TARGET_HEIGHT), Image.BILINEAR)
             
         return self.to_tensor(image)
 
@@ -274,14 +278,17 @@ class DatasetNuScenes(Dataset):
             # Assuming 1 is valid/static, 0 is dynamic/masked? Or vice versa.
             # Usually masks: 0 for ignore, 1 for keep. Or dynamic masks: 1 is dynamic object.
             # Returning a default mask of ones (assuming full image is valid static) if missing
-            return torch.ones((1, self.TARGET_SIZE, self.TARGET_SIZE), dtype=torch.float32)
+            # return torch.ones((1, self.TARGET_SIZE, self.TARGET_SIZE), dtype=torch.float32)
+            return torch.ones((1, self.TARGET_HEIGHT, self.TARGET_WIDTH), dtype=torch.float32)
 
         image = Image.open(file_path).convert('L') # Grayscale
         
-        if self.cfg.input_image_shape[0] == self.TARGET_SIZE and self.cfg.input_image_shape[1] == self.TARGET_SIZE:
-            image = image.resize((self.TARGET_SIZE, self.TARGET_SIZE), Image.NEAREST)
-            
-        return self.mask_to_tensor(image)
+        # if self.cfg.input_image_shape[0] == self.TARGET_SIZE and self.cfg.input_image_shape[1] == self.TARGET_SIZE:
+        #     image = image.resize((self.TARGET_SIZE, self.TARGET_SIZE), Image.NEAREST)
+        if self.cfg.input_image_shape[0] == self.TARGET_HEIGHT and self.cfg.input_image_shape[1] == self.TARGET_WIDTH:
+            image = image.resize((self.TARGET_WIDTH, self.TARGET_HEIGHT), Image.NEAREST)
+
+        return self.mask_to_tensor(image) # batch, v, h, w
 
     def __len__(self) -> int:
         return len(self.samples)
@@ -357,18 +364,20 @@ class DatasetNuScenes(Dataset):
             # Normalize Intrinsics and Resize Adjustment
             normalized_intrinsics = intrinsics.clone()
             
-            if self.cfg.input_image_shape[0] == self.TARGET_SIZE and self.cfg.input_image_shape[1] == self.TARGET_SIZE:
+            # if self.cfg.input_image_shape[0] == self.TARGET_SIZE and self.cfg.input_image_shape[1] == self.TARGET_SIZE:
+            if self.cfg.input_image_shape[0] == self.TARGET_HEIGHT and self.cfg.input_image_shape[1] == self.TARGET_WIDTH:
                 # Intrinsics are for 1600x900, we resized to 448x448
-                s_x = float(self.TARGET_SIZE) / original_w
-                s_y = float(self.TARGET_SIZE) / original_h
-                
+                s_x = float(self.TARGET_WIDTH) / original_w
+                s_y = float(self.TARGET_HEIGHT) / original_h
+
                 normalized_intrinsics[:, 0, 0] *= s_x # fx
                 normalized_intrinsics[:, 1, 1] *= s_y # fy
                 normalized_intrinsics[:, 0, 2] *= s_x # cx
                 normalized_intrinsics[:, 1, 2] *= s_y # cy
                 
                 # Update current dimensions for normalization
-                curr_w, curr_h = float(self.TARGET_SIZE), float(self.TARGET_SIZE)
+                # curr_w, curr_h = float(self.TARGET_SIZE), float(self.TARGET_SIZE)
+                curr_w, curr_h = float(self.TARGET_WIDTH), float(self.TARGET_HEIGHT)
             else:
                 curr_w, curr_h = original_w, original_h
 
