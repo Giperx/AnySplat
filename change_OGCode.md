@@ -1,3 +1,9 @@
+260120 comment
+
+当前分支没有dynamic head以及动静分离处理。只处理输入的多帧数据，损失函数和AnySplat OG保持一致。
+
+---
+
 nuScenes_Train.txt和nuScenes_Val.txt有000～849对应编号，划分训练和验证。
 
 1. model处理相关
@@ -116,3 +122,6 @@ dynamic_mask的render结果放入comparison和comparison_static
 
 
 tar -czvf anysplat0119.tar.gz --exclude=./AnySplat_1218/anysplat_hfog_1108 --exclude=./AnySplat_1218/datasets --exclude=./AnySplat_1218/outputs ./AnySplat_1218
+
+---
+

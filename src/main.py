@@ -86,7 +86,10 @@ def train(cfg_dict: DictConfig):
         old_dir = str(cfg.checkpointing.log_save_dir) 
         log_dir = old_dir.replace(
             "${now:%Y-%m-%d_%H-%M-%S}",  # 旧时间戳
-            real_now                                        # 新时间戳（可改格式）
+            real_now                                      
+        ).replace(
+            "${wandb.name}",
+            cfg_dict.wandb.name
         )
         logger = LocalLogger(log_dir)
         # logger = LocalLogger(cfg.checkpointing.log_save_dir)

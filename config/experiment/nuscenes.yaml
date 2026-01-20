@@ -4,7 +4,7 @@ defaults:
   - /dataset@_group_.nuscenes: nuscenes
   - override /model/encoder: anysplat
   - override /model/encoder/backbone: croco
-  - override /loss: [mse, lpips, depth_consis, dynamic_mask] # ablate: opacity loss
+  - override /loss: [mse, lpips, depth_consis] # ablate: opacity loss
 
 wandb:
   project: anysplat_0119
@@ -62,7 +62,7 @@ data_loader:
     
 trainer:
   max_steps: 30000
-  val_check_interval: 3000
+  val_check_interval: 100
   num_nodes: 1
   accumulate_grad_batches: 1
   precision: bf16-mixed #"32"
@@ -70,7 +70,7 @@ trainer:
 checkpointing:
   # load: null
   load: anysplat_hfog_1108
-  log_save_dir: outputs/exp_local/${now:%Y-%m-%d_%H-%M-%S}
+  log_save_dir: outputs/exp_onlyMutil_${wandb.name}/${now:%Y-%m-%d_%H-%M-%S}
   flag_gaussian_head: true
   every_n_train_steps: 5000
   save_weights_only: false
@@ -86,7 +86,7 @@ train:
 
 hydra:
   run:
-    dir: outputs/exp_${wandb.name}/${now:%Y-%m-%d_%H-%M-%S}
+    dir: outputs/exp_onlyMutil_${wandb.name}/${now:%Y-%m-%d_%H-%M-%S}
 
 loss:
   mse:
@@ -98,8 +98,5 @@ loss:
   depth_consis:
     weight: 0.1 # 
     loss_type: MSE
-  dynamic_mask:
-    weight: 0.5 # focal:1.0 ; 若动态物体面积小则需要更大权重0.5
-    mode: bce
 
 

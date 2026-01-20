@@ -198,7 +198,7 @@ class ModelWrapper(LightningModule):
         # Run the model.
         visualization_dump = None
 
-        encoder_output, output, output_static = self.model(context_image, self.global_step, visualization_dump=visualization_dump)
+        encoder_output, output = self.model(context_image, self.global_step, visualization_dump=visualization_dump)
         gaussians, pred_pose_enc_list, depth_dict = encoder_output.gaussians, encoder_output.pred_pose_enc_list, encoder_output.depth_dict
         pred_context_pose = encoder_output.pred_context_pose
         infos = encoder_output.infos
@@ -215,8 +215,6 @@ class ModelWrapper(LightningModule):
         self.log("train/voxelize_ratio", infos["voxelize_ratio"])
 
         # Compute metrics.
-        #修改为只计算当前帧;output是当前帧3个view的结果
-        target_gt = target_gt[:, :3]
         assert target_gt.shape[1] == output.color.shape[1]
         
         psnr_probabilistic = compute_psnr(
@@ -227,15 +225,15 @@ class ModelWrapper(LightningModule):
 
         consis_absrel = abs_relative_difference(
             rearrange(output.depth, "b v h w -> (b v) h w"),
-            rearrange(depth_dict['depth'][:, :3].squeeze(-1), "b v h w -> (b v) h w"),
-            rearrange(distill_infos['conf_mask'][:, :3], "b v h w -> (b v) h w"),
+            rearrange(depth_dict['depth'].squeeze(-1), "b v h w -> (b v) h w"),
+            rearrange(distill_infos['conf_mask'], "b v h w -> (b v) h w"),
         )
         self.log("train/consis_absrel", consis_absrel.mean())
 
         consis_delta1 = delta1_acc(
             rearrange(output.depth, "b v h w -> (b v) h w"),
-            rearrange(depth_dict['depth'][:, :3].squeeze(-1), "b v h w -> (b v) h w"),
-            rearrange(distill_infos['conf_mask'][:, :3], "b v h w -> (b v) h w"),
+            rearrange(depth_dict['depth'].squeeze(-1), "b v h w -> (b v) h w"),
+            rearrange(distill_infos['conf_mask'], "b v h w -> (b v) h w"),
         )
         self.log("train/consis_delta1", consis_delta1.mean())
         
@@ -245,16 +243,9 @@ class ModelWrapper(LightningModule):
         depth_dict['distill_infos'] = distill_infos
         with torch.amp.autocast('cuda', enabled=False):
             for loss_fn in self.losses:
-                if loss_fn.name == "dynamic_mask":
-                    loss = loss_fn.forward(output, batch, gaussians, depth_dict, self.global_step)
-                    self.log(f"loss/{loss_fn.name}", loss)
-                    total_loss = total_loss + loss
-                else:
                     cur_dynamic_loss = loss_fn.forward(output, batch, gaussians, depth_dict, self.global_step, static_flag=False)
-                    his_static_loss = loss_fn.forward(output_static, batch, gaussians, depth_dict, self.global_step, static_flag=True)
-                    self.log(f"loss/{loss_fn.name}_cur", cur_dynamic_loss) # 当前帧，含动静部分
-                    self.log(f"loss/{loss_fn.name}_his", his_static_loss) # 历史帧，只含静态部分
-                    total_loss = total_loss + cur_dynamic_loss + his_static_loss
+                    self.log(f"loss/{loss_fn.name}", cur_dynamic_loss)
+                    total_loss = total_loss + cur_dynamic_loss
 
             # 未使用
             if depth_dict is not None and "depth" in get_cfg()["loss"].keys() and self.train_cfg.cxt_depth_weight > 0:
@@ -485,7 +476,7 @@ class ModelWrapper(LightningModule):
         assert b == 1
         visualization_dump = {}
 
-        encoder_output, output, static_output = self.model((batch["context"]["image"] + 1) / 2, self.global_step, visualization_dump=visualization_dump)
+        encoder_output, output = self.model((batch["context"]["image"] + 1) / 2, self.global_step, visualization_dump=visualization_dump)
         gaussians, pred_pose_enc_list, depth_dict = encoder_output.gaussians, encoder_output.pred_pose_enc_list, encoder_output.depth_dict
         pred_context_pose, distill_infos = encoder_output.pred_context_pose, encoder_output.distill_infos
         infos = encoder_output.infos
@@ -504,35 +495,34 @@ class ModelWrapper(LightningModule):
             gaussian_means = gaussian_means.mean(dim=-1)
 
         # Compute validation metrics.
-        # 只计算current帧
         rgb_gt = (batch["context"]["image"][0].float() + 1) / 2
-        psnr = compute_psnr(rgb_gt[:3], rgb_pred).mean()
+        psnr = compute_psnr(rgb_gt, rgb_pred).mean()
         self.log(f"val/psnr", psnr)
-        lpips = compute_lpips(rgb_gt[:3], rgb_pred).mean()
+        lpips = compute_lpips(rgb_gt, rgb_pred).mean()
         self.log(f"val/lpips", lpips)
-        ssim = compute_ssim(rgb_gt[:3], rgb_pred).mean()
+        ssim = compute_ssim(rgb_gt, rgb_pred).mean()
         self.log(f"val/ssim", ssim)
         print("psnr, lpips, ssim:", psnr, lpips, ssim)
         
         # depth metrics
         consis_absrel = abs_relative_difference(
             rearrange(output.depth, "b v h w -> (b v) h w"),
-            rearrange(depth_dict['depth'][:, :3].squeeze(-1), "b v h w -> (b v) h w"),
+            rearrange(depth_dict['depth'].squeeze(-1), "b v h w -> (b v) h w"),
         )
         self.log("val/consis_absrel", consis_absrel.mean())
         
         consis_delta1 = delta1_acc(
             rearrange(output.depth, "b v h w -> (b v) h w"),
-            rearrange(depth_dict['depth'][:, :3].squeeze(-1), "b v h w -> (b v) h w"),
+            rearrange(depth_dict['depth'].squeeze(-1), "b v h w -> (b v) h w"),
             valid_mask=rearrange(torch.ones_like(output.depth, device=output.depth.device, dtype=torch.bool), "b v h w -> (b v) h w"),
         )
         self.log("val/consis_delta1", consis_delta1.mean())
 
-        diff_map = torch.abs(output.depth - depth_dict['depth'][:, :3].squeeze(-1))
-        self.log("val/consis_mse", diff_map[distill_infos['conf_mask'][:, :3]].mean())
+        diff_map = torch.abs(output.depth - depth_dict['depth'].squeeze(-1))
+        self.log("val/consis_mse", diff_map[distill_infos['conf_mask']].mean())
 
         # Construct comparison image.
-        context_img = inverse_normalize(batch["context"]["image"][0][:3])
+        context_img = inverse_normalize(batch["context"]["image"][0])
         # context_img_depth = vis_depth_map(gaussian_means)
         context = []
         for i in range(context_img.shape[0]):
@@ -540,30 +530,15 @@ class ModelWrapper(LightningModule):
             # context.append(context_img_depth[i])
         
         colored_diff_map = vis_depth_map(diff_map[0], near=torch.tensor(1e-4, device=diff_map.device), far=torch.tensor(1.0, device=diff_map.device))
-        model_depth_pred = depth_dict["depth"].squeeze(-1)[0][:3]
+        model_depth_pred = depth_dict["depth"].squeeze(-1)[0]
         model_depth_pred = vis_depth_map(model_depth_pred)
         
-        render_normal = (get_normal_map(output.depth.flatten(0, 1), batch["context"]["intrinsics"][:, :3].flatten(0, 1)).permute(0, 3, 1, 2) + 1) / 2.
-        pred_normal = (get_normal_map(depth_dict['depth'][:, :3].flatten(0, 1).squeeze(-1), batch["context"]["intrinsics"][:, :3].flatten(0, 1)).permute(0, 3, 1, 2) + 1) / 2.
-
-        ### 增加dynamic mask的可视化
-        # 1. 从 depth_dict 提取 dynamic_conf (假设其形状为 B, V, H, W)
-        # 取 batch 的第一组 [0]，并取前 3 个视角 [:3] 以匹配 context 的显示
-        dynamic_conf_viz = depth_dict["dynamic_conf"][0][:3] 
-        # 2. 阈值处理：大于 0.5 为白色 (1.0)，小于等于 0.5 为黑色 (0.0)
-        # 并确保维度是 (V, 1, H, W) 或者是 (V, 3, H, W) 以便可视化函数处理
-        dynamic_mask = (dynamic_conf_viz > 0.5).float()
-        # 3. 将单通道灰度图转为 3 通道 RGB 格式（如果是单通道显示函数不支持，通常 vcat/hcat 需要统一通道）
-        if dynamic_mask.dim() == 3: # (V, H, W)
-            dynamic_mask = dynamic_mask.unsqueeze(1).repeat(1, 3, 1, 1) # -> (V, 3, H, W)
-        elif dynamic_mask.shape[1] == 1: # (V, 1, H, W)
-            dynamic_mask = dynamic_mask.repeat(1, 3, 1, 1)
-        # 4. 转换成列表形式以便 vcat 处理
-        dynamic_mask_list = [dynamic_mask[i] for i in range(dynamic_mask.shape[0])]
+        render_normal = (get_normal_map(output.depth.flatten(0, 1), batch["context"]["intrinsics"].flatten(0, 1)).permute(0, 3, 1, 2) + 1) / 2.
+        pred_normal = (get_normal_map(depth_dict['depth'].flatten(0, 1).squeeze(-1), batch["context"]["intrinsics"].flatten(0, 1)).permute(0, 3, 1, 2) + 1) / 2.
         
         
         ### 增加GT mask的可视化
-        gt_mask = batch["context"]["fine_dynamic_masks"][0][:3] # b, v, 1, h, w
+        gt_mask = batch["context"]["fine_dynamic_masks"][0] # b, v, 1, h, w
         # print("****gt_mask shape:", gt_mask.shape)
         if gt_mask.dim() == 4 and gt_mask.shape[1] == 1:
             gt_mask = gt_mask.repeat(1, 3, 1, 1)  # -> (V, 3, H, W)
@@ -578,7 +553,6 @@ class ModelWrapper(LightningModule):
             # add_label(vcat(*rgb_gt), "Target (Ground Truth)"),
             add_label(vcat(*rgb_pred), "Target (Prediction)"),
             add_label(vcat(*gt_dynamic_mask_list), "Dynamic Mask(GT)"),
-            add_label(vcat(*dynamic_mask_list), "Dynamic Mask(Pred)"),
             add_label(vcat(*depth_pred), "Depth (Prediction)"),
             add_label(vcat(*model_depth_pred), "Depth (Aggregator Prediction)"),
             add_label(vcat(*render_normal), "Normal (Prediction)"),
@@ -594,65 +568,11 @@ class ModelWrapper(LightningModule):
         ).squeeze(0)
         
         self.logger.log_image(
-            f"{batch_idx}_{batch['scene'][0]}",
+            f"images/{batch['scene'][0]}_b{batch_idx}",
             [prep_image(add_border(comparison))],
             step=self.global_step,
             captions=batch["scene"],
-        )
-
-        context_static = []
-        context_img_static = inverse_normalize(batch["context"]["image"][0][3:])
-        for i in range(context_img_static.shape[0]):
-            context_static.append(context_img_static[i])
-            # context_static.append(context_img_depth[i])
-        
-        rgb_pred_static = static_output.color[0][3:].float()
-        
-        ### 增加dynamic mask his的可视化
-        # 1. 从 depth_dict 提取 dynamic_conf (假设其形状为 B, V, H, W)
-        # 取 batch 的第一组 [0]，并取前 3 个视角 [:3] 以匹配 context 的显示
-        dynamic_conf_viz_his = depth_dict["dynamic_conf"][0][3:] 
-        # 2. 阈值处理：大于 0.5 为白色 (1.0)，小于等于 0.5 为黑色 (0.0)
-        # 并确保维度是 (V, 1, H, W) 或者是 (V, 3, H, W) 以便可视化函数处理
-        dynamic_mask_his = (dynamic_conf_viz_his > 0.5).float()
-        # 3. 将单通道灰度图转为 3 通道 RGB 格式（如果是单通道显示函数不支持，通常 vcat/hcat 需要统一通道）
-        if dynamic_mask_his.dim() == 3: # (V, H, W)
-            dynamic_mask_his = dynamic_mask_his.unsqueeze(1).repeat(1, 3, 1, 1) # -> (V, 3, H, W)
-        elif dynamic_mask_his.shape[1] == 1: # (V, 1, H, W)
-            dynamic_mask_his = dynamic_mask_his.repeat(1, 3, 1, 1)
-        # 4. 转换成列表形式以便 vcat 处理
-        dynamic_mask_list_his = [dynamic_mask_his[i] for i in range(dynamic_mask_his.shape[0])]
-
-        ### 增加GT mask的可视化
-        gt_mask = batch["context"]["fine_dynamic_masks"][0][3:] # b, v, 1, h, w
-        if gt_mask.dim() == 4 and gt_mask.shape[1] == 1:
-            gt_mask = gt_mask.repeat(1, 3, 1, 1)  # -> (V, 3, H, W)
-            # 0-1 -> 0-255 uint8
-            gt_mask = (gt_mask * 255).clamp(0, 255).byte()
-            # 再变回 0-1 浮点，但值只有 0/1 对应 0/255
-            gt_mask = gt_mask.float() / 255.0
-        gt_dynamic_mask_list_his = [gt_mask[i] for i in range(gt_mask.shape[0])]
-        
-        comparison_static = hcat(
-            add_label(vcat(*context_static), "Context_History_Static"),
-            add_label(vcat(*rgb_pred_static), "Target (Prediction)"),
-            add_label(vcat(*gt_dynamic_mask_list_his), "Dynamic Mask(GT)"),
-            add_label(vcat(*dynamic_mask_list_his), "Dynamic Mask(Pred)"),
-        )
-
-        comparison_static = torch.nn.functional.interpolate(
-            comparison_static.unsqueeze(0), 
-            scale_factor=1.0,
-            mode='bicubic', 
-            align_corners=False
-        ).squeeze(0)
-        
-        self.logger.log_image(
-            f"{batch_idx}_static_{batch['scene'][0]}",
-            [prep_image(add_border(comparison_static))],
-            step=self.global_step,
-            captions=batch["scene"],
-        )        
+        )    
 
         # self.logger.log_image(
         #     key="comparison",
@@ -685,7 +605,7 @@ class ModelWrapper(LightningModule):
 
 
         ### add 验证时就可以输出宽视野图像
-        _, output_wide, static_output_wide = self.model((batch["context"]["image"] + 1) / 2, self.global_step, visualization_dump=visualization_dump, wide_fov=True, new_width=896) # 1.7*448=761
+        _, output_wide = self.model((batch["context"]["image"] + 1) / 2, self.global_step, visualization_dump=visualization_dump, wide_fov=True, new_width=896) # 1.7*448=761
         rgb_pred_wide = output_wide.color[0].float()
         # depth_pred_wide = vis_depth_map(output_wide.depth[0])
         # render_normal_wide = (get_normal_map(output_wide.depth.flatten(0, 1), batch["context"]["intrinsics"].flatten(0, 1)).permute(0, 3, 1, 2) + 1) / 2.
@@ -699,12 +619,11 @@ class ModelWrapper(LightningModule):
         # rgb_gt_need = torch.stack(rgb_gt_need, dim=0)
                 
         rgb_pred_wide = output_wide.color[0].float()
-        rgb_pred_static_wide = static_output_wide.color[0].float()
         rgb_pred_wide_need = []
         rgb_pred_wide_need.extend(rgb_pred_wide[:3])  # cur
         for i in range(3, v):  # his
             if i % 3 == 0:
-                rgb_pred_wide_need.append(rgb_pred_static_wide[i])
+                rgb_pred_wide_need.append(rgb_pred_wide[i])
             
         
         comparison_wide = hcat(
@@ -723,7 +642,7 @@ class ModelWrapper(LightningModule):
         ).squeeze(0)
         
         self.logger.log_image(
-            f"{batch_idx}_wide_{batch['scene'][0]}",
+            f"wide_images/wide_{batch['scene'][0]}_{batch_idx}",
             [prep_image(add_border(comparison_wide))],
             step=self.global_step,
             captions=batch["scene"],
@@ -740,7 +659,7 @@ class ModelWrapper(LightningModule):
         # self.render_video_wobble(batch)
         # if self.train_cfg.extended_visualization:
         #     self.render_video_interpolation_exaggerated(batch)
-        self.render_video_interpolation(batch, pred_context_pose, usePredPose=True, start_idx=-2, end_idx=2, camsName="LastLeft2FirstRight", number_frames=120)
+        # self.render_video_interpolation(batch, pred_context_pose, usePredPose=True, start_idx=-2, end_idx=2, camsName="LastLeft2FirstRight", number_frames=120)
         torch.cuda.empty_cache()
 
     @rank_zero_only
@@ -874,7 +793,7 @@ class ModelWrapper(LightningModule):
         usePredPose: bool = False,
     ) -> None:
         # Render probabilistic estimate of scene.
-        name = ("" if usePredPose else "gtPose_") + batch['scene'][0] + "_" +  f"_{name}" + str(self.global_step)
+        name = ("" if usePredPose else "gtPose_") + batch['scene'][0] +  f"_{name}" + str(self.global_step)
         encoder_output = self.model.encoder((batch["context"]["image"]+1)/2, self.global_step)
         gaussians, pred_pose_enc_list = encoder_output.gaussians, encoder_output.pred_pose_enc_list
 
@@ -914,6 +833,11 @@ class ModelWrapper(LightningModule):
                 tensor = value._prepare_video(value.data)
                 clip = mpy.ImageSequenceClip(list(tensor), fps=15)
                 dir = self.logger.log_path / key
+                name_parts = dir.name.split("_")
+                if len(name_parts) > 1:
+                    dir = dir.parent / "_".join(name_parts[:-1])
+                else:
+                    dir = dir.parent / dir.name
                 dir.mkdir(exist_ok=True, parents=True)
                 clip.write_videofile(
                     str(dir / f"{name}.mp4"), logger=None

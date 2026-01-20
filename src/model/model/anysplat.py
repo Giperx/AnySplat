@@ -115,7 +115,7 @@ class AnySplat(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         b, v, c, h, w = context_image.shape
         device = context_image.device
         encoder_output = self.encoder(context_image, global_step, visualization_dump=visualization_dump)
-        gaussians, static_gaussians, pred_context_pose = encoder_output.gaussians, encoder_output.static_gaussians, encoder_output.pred_context_pose
+        gaussians, pred_context_pose = encoder_output.gaussians, encoder_output.pred_context_pose
         
         if wide_fov and new_width is not None:
             ### add for wide fov rendering
@@ -134,22 +134,13 @@ class AnySplat(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         # if current_timeFrame_flag: # 当前帧是需要动静部分的
         output = self.decoder.forward(
             gaussians,
-            pred_context_pose['extrinsic'][:, :3, ...],
-            pred_context_pose["intrinsic"][:, :3, ...],
-            torch.ones(1, v, device=device) * near,
-            torch.ones(1, v, device=device) * far,
-            (h, w),
-            "depth",
-        )      
-        # else:                   # 历史帧，只需要静态部分
-        output_static = self.decoder.forward(
-            static_gaussians,
             pred_context_pose['extrinsic'],
             pred_context_pose["intrinsic"],
             torch.ones(1, v, device=device) * near,
             torch.ones(1, v, device=device) * far,
             (h, w),
             "depth",
-        )
-        return encoder_output, output, output_static
+        )      
+
+        return encoder_output, output
     

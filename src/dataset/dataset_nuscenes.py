@@ -279,7 +279,7 @@ class DatasetNuScenes(Dataset):
             # Usually masks: 0 for ignore, 1 for keep. Or dynamic masks: 1 is dynamic object.
             # Returning a default mask of ones (assuming full image is valid static) if missing
             # return torch.ones((1, self.TARGET_SIZE, self.TARGET_SIZE), dtype=torch.float32)
-            return torch.ones((1, self.TARGET_HEIGHT, self.TARGET_WIDTH), dtype=torch.float32)
+            return torch.ones((0, self.TARGET_HEIGHT, self.TARGET_WIDTH), dtype=torch.float32)
 
         image = Image.open(file_path).convert('L') # Grayscale
         
@@ -287,7 +287,12 @@ class DatasetNuScenes(Dataset):
         #     image = image.resize((self.TARGET_SIZE, self.TARGET_SIZE), Image.NEAREST)
         if self.cfg.input_image_shape[0] == self.TARGET_HEIGHT and self.cfg.input_image_shape[1] == self.TARGET_WIDTH:
             image = image.resize((self.TARGET_WIDTH, self.TARGET_HEIGHT), Image.NEAREST)
-
+        ### debug save image
+        # debug_save_path = Path("debug_masks") / f"{timestep:03d}_{cam_id}.png"
+        # os.makedirs(debug_save_path.parent, exist_ok=True)
+        # print(f"*********Debug saving mask to {debug_save_path}")
+        # image.save(debug_save_path)
+        
         return self.mask_to_tensor(image) # batch, v, h, w
 
     def __len__(self) -> int:

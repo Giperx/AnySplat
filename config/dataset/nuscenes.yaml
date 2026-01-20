@@ -3,7 +3,7 @@ defaults:
   - view_sampler: all
 
 name: nuscenes
-roots: [datasets/nuscenes/processed_10Hz/trainval]
+roots: [datasets/nuscenes/processed_10Hz/trainval2]
 split_file_path: nuScenes_Train.txt
 numTimes: 3  # total number of timesteps in each scene
 
