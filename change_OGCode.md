@@ -121,7 +121,7 @@ dynamic_mask的render结果放入comparison和comparison_static
 * TODO：处理validation_step中相关逻辑，符合修改后代码。
 
 
-tar -czvf anysplat0119.tar.gz --exclude=./AnySplat_1218/anysplat_hfog_1108 --exclude=./AnySplat_1218/datasets --exclude=./AnySplat_1218/outputs ./AnySplat_1218
+tar -czvf anysplat0120.tar.gz --exclude=./AnySplat_1218/anysplat_hfog_1108 --exclude=./AnySplat_1218/datasets --exclude=./AnySplat_1218/outputs ./AnySplat_1218
 
 ---
 

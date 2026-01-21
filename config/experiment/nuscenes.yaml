@@ -7,7 +7,7 @@ defaults:
   - override /loss: [mse, lpips, depth_consis] # ablate: opacity loss
 
 wandb:
-  project: anysplat_0119
+  project: anysplat_0120
   name: nuScenes_reTrain
   tags: [nuScenes, 252x448]
   mode: disabled # online offline disabled
@@ -45,14 +45,14 @@ dataset:
       num_target_views: 3
       # min_distance_between_context_views: 32
       # max_distance_between_context_views: 256
-      max_img_per_gpu: 9
+      max_img_per_gpu: 36
     avg_pose: false
     intr_augment: false
     normalize_by_pts3d: false
     rescale_to_1cube: false
 
 optimizer:
-  lr: 3.125e-6 #1.25e-6 5e-5 #2e-4 and 24 per gpu, 16 gpus
+  lr: 8e-5 # 3.125e-6 #1.25e-6 5e-5 #2e-4 and 24 per gpu, 16 gpus
   warm_up_steps: 3000
   backbone_lr_multiplier: 0.1 #0.1
 
@@ -62,7 +62,7 @@ data_loader:
     
 trainer:
   max_steps: 30000
-  val_check_interval: 100
+  val_check_interval: 3000
   num_nodes: 1
   accumulate_grad_batches: 1
   precision: bf16-mixed #"32"
@@ -71,7 +71,7 @@ checkpointing:
   # load: null
   load: anysplat_hfog_1108
   log_save_dir: outputs/exp_onlyMutil_${wandb.name}/${now:%Y-%m-%d_%H-%M-%S}
-  flag_gaussian_head: true
+  flag_gaussian_head: false
   every_n_train_steps: 5000
   save_weights_only: false
   save_top_k: 100
