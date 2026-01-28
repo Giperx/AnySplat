@@ -153,18 +153,18 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
             self.point_head = model_full.point_head
 
         ### delete
-        # if self.distill: 
-        #     self.distill_aggregator = copy.deepcopy(self.aggregator)
-        #     self.distill_camera_head = copy.deepcopy(self.camera_head)
-        #     self.distill_depth_head = copy.deepcopy(self.depth_head)
-        #     for module in [
-        #         self.distill_aggregator,
-        #         self.distill_camera_head,
-        #         self.distill_depth_head,
-        #     ]:
-        #         for param in module.parameters():
-        #             param.requires_grad = False
-        #             param.data = param.data.cpu()
+        if self.distill: 
+            self.distill_aggregator = copy.deepcopy(self.aggregator)
+            self.distill_camera_head = copy.deepcopy(self.camera_head)
+            self.distill_depth_head = copy.deepcopy(self.depth_head)
+            for module in [
+                self.distill_aggregator,
+                self.distill_camera_head,
+                self.distill_depth_head,
+            ]:
+                for param in module.parameters():
+                    param.requires_grad = False
+                    param.data = param.data.cpu()
 
         if self.freeze_backbone:
             # Freeze backbone components
@@ -254,6 +254,20 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
               "self.frozenCameraHead:", self.frozenCameraHead,
               "self.frozenDepthHead:", self.frozenDepthHead,
         )
+        ### add pretrained weights loading pretrain AnySplat model
+        print("Using AnySplat pretrained weights.")
+        self.distill_aggregator = copy.deepcopy(self.aggregator)
+        self.distill_camera_head = copy.deepcopy(self.camera_head)
+        self.distill_depth_head = copy.deepcopy(self.depth_head)
+        for module in [
+            self.distill_aggregator,
+            self.distill_camera_head,
+            self.distill_depth_head,
+        ]:
+            for param in module.parameters():
+                param.requires_grad = False
+                param.data = param.data.cpu()
+                
         if self.frozenAggregator:
             for param in self.aggregator.parameters():
                 param.requires_grad = False
@@ -388,6 +402,73 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         device = image.device
         b, v, _, h, w = image.shape
         distill_infos = {}
+        if self.distill:
+            distill_image = image.clone().detach()
+            for module in [
+                self.distill_aggregator,
+                self.distill_camera_head,
+                self.distill_depth_head,
+            ]:
+                for param in module.parameters():
+                    param.data = param.data.to(device, non_blocking=True)
+
+            with torch.no_grad():
+                # Process with bfloat16 precision
+                with torch.amp.autocast("cuda", enabled=True, dtype=torch.bfloat16):
+                     
+                    distill_aggregated_tokens_list, distill_image_tokens_list, distill_dino_token_list, distill_patch_start_idx = (
+                        self.distill_aggregator(
+                            distill_image.to(torch.bfloat16),
+                            intermediate_layer_idx=self.cfg.intermediate_layer_idx,
+                        )
+                    )
+
+                # Process with default precision
+                with torch.amp.autocast("cuda", enabled=False):
+                    # Get camera pose information
+                    distill_pred_pose_enc_list = self.distill_camera_head(
+                        distill_aggregated_tokens_list
+                    )
+                    last_distill_pred_pose_enc = distill_pred_pose_enc_list[-1]
+                    distill_extrinsic, distill_intrinsic = pose_encoding_to_extri_intri(
+                        last_distill_pred_pose_enc, image.shape[-2:]
+                    )
+
+                    # Get depth information
+                    distill_depth_map, distill_depth_conf = self.distill_depth_head(
+                        distill_aggregated_tokens_list,
+                        images=distill_image,
+                        patch_start_idx=distill_patch_start_idx,
+                    )
+
+                    # Convert depth to 3D points
+                    distill_pts_all = batchify_unproject_depth_map_to_point_map(
+                        distill_depth_map, distill_extrinsic, distill_intrinsic
+                    )
+                # Store results
+                distill_infos["pred_pose_enc_list"] = distill_pred_pose_enc_list
+                distill_infos["pts_all"] = distill_pts_all
+                distill_infos["depth_map"] = distill_depth_map
+
+                conf_threshold = torch.quantile(
+                    distill_depth_conf.flatten(2, 3), 0.3, dim=-1, keepdim=True
+                )  # Get threshold for each view
+                conf_mask = distill_depth_conf > conf_threshold.unsqueeze(-1)
+                distill_infos["conf_mask"] = conf_mask
+
+                for module in [
+                    self.distill_aggregator,
+                    self.distill_camera_head,
+                    self.distill_depth_head,
+                ]:
+                    for param in module.parameters():
+                        param.data = param.data.cpu()
+                # Clean up to save memory
+                del distill_aggregated_tokens_list, distill_patch_start_idx, distill_image_tokens_list, distill_dino_token_list
+                del distill_pred_pose_enc_list, last_distill_pred_pose_enc
+                del distill_extrinsic, distill_intrinsic
+                del distill_depth_map, distill_depth_conf
+                torch.cuda.empty_cache()
 
         with torch.amp.autocast("cuda", enabled=True, dtype=torch.bfloat16):
             # aggregated_tokens_list, patch_start_idx = self.aggregator(
@@ -435,13 +516,13 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
                 conf_valid_mask = torch.ones_like(depth_conf, dtype=torch.bool)
                 
             ### add conf_mask for loss_depth_consis
-            depth_conf_detached = depth_conf.detach()
-            conf_threshold_tmp = torch.quantile(
-                depth_conf_detached.flatten(2, 3), 0.3, dim=-1, keepdim=True
-            )  # Get threshold for each view
-            conf_mask_tmp = depth_conf > conf_threshold_tmp.unsqueeze(-1)
-            distill_infos["conf_mask"] = conf_mask_tmp
-            del depth_conf_detached, conf_threshold_tmp, conf_mask_tmp
+            # depth_conf_detached = depth_conf.detach()
+            # conf_threshold_tmp = torch.quantile(
+            #     depth_conf_detached.flatten(2, 3), 0.3, dim=-1, keepdim=True
+            # )  # Get threshold for each view
+            # conf_mask_tmp = depth_conf > conf_threshold_tmp.unsqueeze(-1)
+            # distill_infos["conf_mask"] = conf_mask_tmp
+            # del depth_conf_detached, conf_threshold_tmp, conf_mask_tmp
 
         # dpt style gs_head input format
         out = self.gaussian_param_head(
@@ -575,16 +656,17 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         infos["scene_scale"] = scene_scale
         infos["voxelize_ratio"] = densities.shape[1] / (h * w * v)
 
-        print(
-            f"scene scale: {scene_scale:.3f}, pixel-wise num: {h*w*v}, after voxelize: {neural_pts.shape[1]}, voxelize ratio: {infos['voxelize_ratio']:.3f}"
-        )
-        print(
-            f"Gaussians attributes: \n"
-            f"opacities: mean: {gaussians.opacities.mean()}, min: {gaussians.opacities.min()}, max: {gaussians.opacities.max()} \n"
-            f"scales: mean: {gaussians.scales.mean()}, min: {gaussians.scales.min()}, max: {gaussians.scales.max()}"
-        )
+        if global_step % 50 == 0:
+            print(
+                f"scene scale: {scene_scale:.3f}, pixel-wise num: {h*w*v}, after voxelize: {neural_pts.shape[1]}, voxelize ratio: {infos['voxelize_ratio']:.3f}"
+            )
+            print(
+                f"Gaussians attributes: \n"
+                f"opacities: mean: {gaussians.opacities.mean()}, min: {gaussians.opacities.min()}, max: {gaussians.opacities.max()} \n"
+                f"scales: mean: {gaussians.scales.mean()}, min: {gaussians.scales.min()}, max: {gaussians.scales.max()}"
+            )
 
-        print("B:", b, "V:", v, "H:", h, "W:", w)
+            print("B:", b, "V:", v, "H:", h, "W:", w)
         extrinsic_padding = (
             torch.tensor([0, 0, 0, 1], device=device, dtype=extrinsic.dtype)
             .view(1, 1, 1, 4)

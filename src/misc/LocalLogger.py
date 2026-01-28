@@ -48,13 +48,13 @@ class LocalLogger(Logger):
         key: str,
         images: list[Any],
         step: Optional[int] = None,
-        captions: Optional[list[str]] = None,
+        caption: Optional[list[str]] = None,
         **kwargs,
     ):
         # The function signature is the same as the wandb logger's, but the step is
         # actually required.
         assert step is not None
         for index, image in enumerate(images):
-            path = self.log_path / f"{key}/{captions[0]}_{index:0>2}_{step:0>6}.jpg"
+            path = self.log_path / f"{key}/{caption[0]}_{index:0>2}_{step:0>6}.jpg"
             path.parent.mkdir(exist_ok=True, parents=True)
             Image.fromarray(image).save(path)

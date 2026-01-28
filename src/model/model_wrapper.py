@@ -146,13 +146,13 @@ class ModelWrapper(LightningModule):
         if self.model.encoder.pred_pose:
             self.loss_pose = HuberLoss(alpha=self.train_cfg.pose_loss_alpha, delta=self.train_cfg.pose_loss_delta)
         
-        # if self.model.encoder.distill:
-        #     self.loss_distill = DistillLoss(
-        #         delta=self.train_cfg.pose_loss_delta,
-        #         weight_pose=self.train_cfg.weight_pose,
-        #         weight_depth=self.train_cfg.weight_depth,
-        #         weight_normal=self.train_cfg.weight_normal
-        #     )
+        if self.model.encoder.distill:
+            self.loss_distill = DistillLoss(
+                delta=self.train_cfg.pose_loss_delta,
+                weight_pose=self.train_cfg.weight_pose,
+                weight_depth=self.train_cfg.weight_depth,
+                weight_normal=self.train_cfg.weight_normal
+            )
 
         # This is used for testing.
         self.benchmarker = Benchmarker()
@@ -255,14 +255,14 @@ class ModelWrapper(LightningModule):
                 self.log("loss/ctx_depth", loss_depth)
                 total_loss = total_loss + loss_depth
 
-            # if distill_infos is not None:
-            #     # distill ctx pred_pose & depth & normal
-            #     loss_distill_list = self.loss_distill(distill_infos, pred_pose_enc_list, output, batch)
-            #     self.log("loss/distill", loss_distill_list['loss_distill'])
-            #     self.log("loss/distill_pose", loss_distill_list['loss_pose'])
-            #     self.log("loss/distill_depth", loss_distill_list['loss_depth'])
-            #     self.log("loss/distill_normal", loss_distill_list['loss_normal'])
-            #     total_loss = total_loss + loss_distill_list['loss_distill']
+            if distill_infos is not None:
+                # distill ctx pred_pose & depth & normal
+                loss_distill_list = self.loss_distill(distill_infos, pred_pose_enc_list, output, batch)
+                self.log("loss/distill", loss_distill_list['loss_distill'])
+                self.log("loss/distill_pose", loss_distill_list['loss_pose'])
+                self.log("loss/distill_depth", loss_distill_list['loss_depth'])
+                self.log("loss/distill_normal", loss_distill_list['loss_normal'])
+                total_loss = total_loss + loss_distill_list['loss_distill']
         
         self.log("loss/total", total_loss)
         # print(f"total_loss: {total_loss}")
@@ -284,6 +284,7 @@ class ModelWrapper(LightningModule):
                 f"scene = {[x for x in batch['scene']]}; "
                 f"context = {batch['context']['index'].tolist()}; "
                 f"loss = {total_loss:.6f}; "
+                f"psnr_probabilistic = {psnr_probabilistic.mean():.2f}; "
             )
             
         self.log("info/global_step", self.global_step)  # hack for ckpt monitor
@@ -571,7 +572,7 @@ class ModelWrapper(LightningModule):
             f"images/{batch['scene'][0]}_b{batch_idx}",
             [prep_image(add_border(comparison))],
             step=self.global_step,
-            captions=batch["scene"],
+            caption=batch["scene"],
         )    
 
         # self.logger.log_image(
@@ -645,7 +646,7 @@ class ModelWrapper(LightningModule):
             f"wide_images/wide_{batch['scene'][0]}_{batch_idx}",
             [prep_image(add_border(comparison_wide))],
             step=self.global_step,
-            captions=batch["scene"],
+            caption=batch["scene"],
         )
 
         if self.encoder_visualizer is not None:
@@ -907,13 +908,23 @@ class ModelWrapper(LightningModule):
             #     pretrained_params.append(param)
             #     pretrained_param_names.append(name)
             
-            if "dynamic_head" in name or "interm" in name:
-                new_params.append(param)
-                new_param_names.append(name)
-            else:
-                pretrained_params.append(param)
-                pretrained_param_names.append(name)
-        
+            # if "dynamic_head" in name or "interm" in name:
+            #     new_params.append(param)
+            #     new_param_names.append(name)
+            # else:
+            #     pretrained_params.append(param)
+            #     pretrained_param_names.append(name)
+            
+            pretrained_params.append(param)
+            pretrained_param_names.append(name)
+            
+            # if "gaussian_param_head" in name:
+            #     new_params.append(param)
+            #     new_param_names.append(name)
+            # else:
+            #     pretrained_params.append(param)
+            #     pretrained_param_names.append(name)
+            
         param_dicts = [
             {
                 "params": new_params,

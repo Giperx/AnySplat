@@ -7,10 +7,10 @@ defaults:
   - override /loss: [mse, lpips, depth_consis] # ablate: opacity loss
 
 wandb:
-  project: anysplat_0120
+  project: anysplat_0126
   name: nuScenes_reTrain
   tags: [nuScenes, 252x448]
-  mode: disabled # online offline disabled
+  mode: online # online offline disabled
   
 model:
   encoder:
@@ -24,7 +24,7 @@ model:
     anchor_feat_dim: 128
     gs_prune: false # ablate: opacity loss
     pred_head_type: depth
-    freeze_backbone: false
+    freeze_backbone: true
     # useVGGT: true # use vggt pretrained weights or anysplat pretrained weights
     distill: true
     frozenAggregator: true
@@ -41,19 +41,19 @@ dataset:
   nuscenes:
     input_image_shape: [252, 448]
     view_sampler:
-      num_context_views: 9 # keep same with numTimes x 3
+      num_context_views: 3 # keep same with numTimes x 3
       num_target_views: 3
       # min_distance_between_context_views: 32
       # max_distance_between_context_views: 256
-      max_img_per_gpu: 36
+      max_img_per_gpu: 24
     avg_pose: false
     intr_augment: false
     normalize_by_pts3d: false
     rescale_to_1cube: false
 
 optimizer:
-  lr: 8e-5 # 3.125e-6 #1.25e-6 5e-5 #2e-4 and 24 per gpu, 16 gpus
-  warm_up_steps: 3000
+  lr: 1.25e-5 # 6.25e-6 imgs:12x1 # 2.5e-5 imgs:6x8 # 3.125e-6 imgs:6x1 #1.25e-6 5e-5 #2e-4 and 24 per gpu, 16 gpus
+  warm_up_steps: 1000
   backbone_lr_multiplier: 0.1 #0.1
 
 data_loader:
@@ -71,7 +71,7 @@ checkpointing:
   # load: null
   load: anysplat_hfog_1108
   log_save_dir: outputs/exp_onlyMutil_${wandb.name}/${now:%Y-%m-%d_%H-%M-%S}
-  flag_gaussian_head: false
+  flag_gaussian_head: true
   every_n_train_steps: 5000
   save_weights_only: false
   save_top_k: 100
@@ -80,8 +80,8 @@ train:
   pose_loss_alpha: 1.0
   pose_loss_delta: 1.0
   cxt_depth_weight: 0.0
-  weight_pose: 0.0 #10.0
-  weight_depth: 0.0 #1.0 # 1.0
+  weight_pose: 10.0 #10.0
+  weight_depth: 1.0 #1.0 # 1.0
   weight_normal: 0.0
 
 hydra:

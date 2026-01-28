@@ -121,10 +121,10 @@ def train(cfg_dict: DictConfig):
         logger=logger,
         devices="auto",
         strategy=(
-            "ddp_find_unused_parameters_true"
-            if torch.cuda.device_count() > 1
-            else "auto"
-        ),
+                    "ddp" # 或者显式指定 "ddp_find_unused_parameters_false"
+                    if torch.cuda.device_count() > 1
+                    else "auto"
+                ),
         # strategy="deepspeed_stage_1",
         callbacks=callbacks,
         val_check_interval=cfg.trainer.val_check_interval,
@@ -154,7 +154,7 @@ def train(cfg_dict: DictConfig):
     checkpoint_path = cfg.checkpointing.load
     # print("flag_gaussian_head:cfg.checkpointing.flag_gaussian_head:", cfg.checkpointing.flag_gaussian_head)
     flag_gaussian_head = getattr(cfg.checkpointing, "flag_gaussian_head", False)
-    # print("flag_gaussian_head:----------", flag_gaussian_head)
+    print("flag_gaussian_head:----------", flag_gaussian_head)
     checkpoint_path_for_lightning, is_hf_pretrained = prepare_checkpoint_path(
         flag_gaussian_head,
         checkpoint_path,
