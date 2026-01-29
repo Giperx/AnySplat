@@ -38,6 +38,7 @@ from .common.gaussian_adapter import (
     GaussianAdapter,
     GaussianAdapterCfg,
     UnifiedGaussianAdapter,
+    UnifiedGaussianAdapterForDGGT
 )
 from .encoder import Encoder, EncoderOutput
 from .heads import head_factory
@@ -95,6 +96,7 @@ class EncoderAnySplatCfg:
     pred_pose: bool = True
     frozenAggregator: bool = False
     frozenGaussianHead: bool = False
+    useDGGTGaussianHead: bool = False
     frozenCameraHead: bool = False
     frozenDepthHead: bool = False
     gt_pose_to_pts: bool = False
@@ -204,27 +206,37 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
                         )
 
         self.pose_free = cfg.pose_free
+        self.useDGGTGaussianHead = cfg.useDGGTGaussianHead
         if self.pose_free:
-            self.gaussian_adapter = UnifiedGaussianAdapter(cfg.gaussian_adapter)
+            # self.gaussian_adapter = UnifiedGaussianAdapter(cfg.gaussian_adapter)
+            # self.gaussian_adapter = UnifiedGaussianAdapterForDGGT(cfg.gaussian_adapter)
+            if self.useDGGTGaussianHead:
+                self.gaussian_adapter = UnifiedGaussianAdapterForDGGT(cfg.gaussian_adapter)
+            else:
+                self.gaussian_adapter = UnifiedGaussianAdapter(cfg.gaussian_adapter)
         else:
             self.gaussian_adapter = GaussianAdapter(cfg.gaussian_adapter)
 
-        self.raw_gs_dim = 1 + self.gaussian_adapter.d_in  # 1 for opacity, 1+7+3
+        self.raw_gs_dim = 1 + self.gaussian_adapter.d_in  # 1 for opacity, 1+7+(3x25)
         self.voxel_size = cfg.voxel_size
         self.gs_params_head_type = cfg.gs_params_head_type
         # fake backbone for head parameters
         head_params = GSHeadParams()
-        self.gaussian_param_head = VGGT_DPT_GS_Head(
-            dim_in=2048,
-            patch_size=head_params.patch_size,
-            output_dim=self.raw_gs_dim + 1, # 1 for confidence
-            activation="norm_exp",
-            conf_activation="expp1",
-            features=head_params.feature_dim,
-        )
+        
+        if self.useDGGTGaussianHead:
+            ### from DGGT
+            self.gaussian_param_head = GaussianHead(dim_in= 3 * 1024, output_dim=self.raw_gs_dim + 1, activation="sigmoid", feature_only=True)# ,down_ratio=2)#RGB # output_dim=(3*25) + 1 + 3 + 4 + 1
+        else:
+            self.gaussian_param_head = VGGT_DPT_GS_Head(
+                dim_in=3 * 1024, #2048,
+                patch_size=head_params.patch_size,
+                output_dim=self.raw_gs_dim + 1, # 1 for confidence, 1+7+(3x25)+1
+                activation="norm_exp",
+                conf_activation="expp1",
+                features=head_params.feature_dim,
+            )
 
-        ### from DGGT
-        # self.gs_head = GaussianHead(dim_in= 3 * head_params.enc_embed_dim, output_dim=3 + 1 + 3 + 4 + 1, activation="sigmoid", feature_only=True)# ,down_ratio=2)#RGB
+
         # self.dynamic_head = DPTHeadDGGT(dim_in= 1024, output_dim = 1 + 1, activation="linear") # ,down_ratio=2)#RGB
         
         print("self.frozenAggregator:", self.frozenAggregator,
@@ -525,16 +537,19 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
             # del depth_conf_detached, conf_threshold_tmp, conf_mask_tmp
 
         # dpt style gs_head input format
-        out = self.gaussian_param_head(
-            aggregated_tokens_list,
-            pts_all.flatten(0, 1).permute(0, 3, 1, 2),
-            image,
-            patch_start_idx=patch_start_idx,
-            image_size=(h, w),
-        )
+        if self.useDGGTGaussianHead:
+            ### infer gs_head like DGGT
+            out = self.gaussian_param_head(image_tokens_list, image, patch_start_idx)    
+        else:
+            out = self.gaussian_param_head(
+                image_tokens_list, # aggregated_tokens_list,
+                pts_all.flatten(0, 1).permute(0, 3, 1, 2),
+                image,
+                patch_start_idx=patch_start_idx,
+                image_size=(h, w),
+            )
         
-        ### infer gs_head like DGGT
-        # out = self.gs_head(image_tokens_list, image, patch_start_idx)
+
         # dynamic_conf: (B, V, H, W, 1) depending on implementation
         # dynamic_conf, _ = self.dynamic_head(dino_token_list, image, patch_start_idx)
         # print("*******dynamic_conf shape:", dynamic_conf.shape) # torch.Size([1, 6, 224, 224, 1])
@@ -587,6 +602,11 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         # opacity_idx = 3
         # densities = neural_feats[..., opacity_idx].sigmoid()
         
+        # if self.useDGGTGaussianHead:
+        #     opacity_idx = 3
+        #     densities = neural_feats[..., opacity_idx].sigmoid()       
+        # else:
+        #     densities = neural_feats[..., 0].sigmoid()
         
         assert len(densities.shape) == 2, "the shape of densities should be (B, N)"
         assert neural_pts.shape[1] > 1, "the number of voxels should be greater than 1"

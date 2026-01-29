@@ -2,6 +2,22 @@
 
 当前分支没有dynamic head以及动静分离处理。只处理输入的多帧数据，损失函数和AnySplat OG保持一致。
 
+260128 comment
+
+* src/model/encoder/anysplat.py
+
+修改Gaussian Head，输入特征增加DINO，使用0阶球谐系数。
+
+* src/model/encoder/common/gaussian_adapter.py
+
+处理DGGT Gaussian Head 逻辑，使用0阶球谐系数 config/model/encoder/anysplat.yaml:sh_degree.
+scales = 0.1 * F.softplus(scales)
+
+OG gs_dpt_head:
+class UnifiedGaussianAdapter(GaussianAdapter):
+        scales = 0.003 * F.softplus(scales)
+        scales = scales.clamp_max(0.5)
+
 ---
 
 nuScenes_Train.txt和nuScenes_Val.txt有000～849对应编号，划分训练和验证。
@@ -66,7 +82,6 @@ fixed图像的高度相关random_ps_h；实际上后续src/dataset/dataset_nusce
 
 * TODO: GaussianHead的返回应修改为feat，衔接原来的vggt_dpt_gs_head的返回结果，供后续的vol使用。
 * TODO: gs_activate_head的逻辑处理进UnifiedGaussianAdapter中。 还需check。
-* TODO: 增加判断逻辑，选用哪种gs head。
 
 * src/model/encoder/anysplat.py   dynamic_head
 
@@ -121,7 +136,7 @@ dynamic_mask的render结果放入comparison和comparison_static
 * TODO：处理validation_step中相关逻辑，符合修改后代码。
 
 
-tar -czvf anysplat0126.tar.gz --exclude=./AnySplat_1218/anysplat_hfog_1108 --exclude=./AnySplat_1218/datasets --exclude=./AnySplat_1218/outputs ./AnySplat_1218
+tar -czvf anysplat0128desayBigGS.tar.gz --exclude=./AnySplat_1218/anysplat_hfog_1108 --exclude=./AnySplat_1218/datasets --exclude=./AnySplat_1218/outputs ./AnySplat_1218
 
 ---
 

@@ -505,7 +505,12 @@ class GaussianHead(nn.Module):
         dpt_idx = 0
 
         for layer_idx in self.intermediate_layer_idx:
-            x = aggregated_tokens_list[layer_idx][:, :, patch_start_idx:]
+            # x = encoder_tokens[layer_idx][:, :, patch_start_idx:]
+            if len(aggregated_tokens_list) > 10:
+                x = aggregated_tokens_list[layer_idx][:, :, patch_start_idx:]
+            else:
+                list_idx = self.intermediate_layer_idx.index(layer_idx)
+                x = aggregated_tokens_list[list_idx][:, :, patch_start_idx:]
 
             # Select frames if processing a chunk
             if frames_start_idx is not None and frames_end_idx is not None:

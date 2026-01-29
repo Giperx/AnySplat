@@ -270,10 +270,10 @@ class ModelWrapper(LightningModule):
         # Skip batch if loss is too high after certain step
         SKIP_AFTER_STEP = 1000  
         LOSS_THRESHOLD = 0.2
-        if self.global_step > SKIP_AFTER_STEP and total_loss > LOSS_THRESHOLD:
-            print(f"Skipping batch with high loss ({total_loss:.6f}) at step {self.global_step} on Rank {self.global_rank}")
-            # set to a really small number
-            return total_loss * 1e-10
+        # if self.global_step > SKIP_AFTER_STEP and total_loss > LOSS_THRESHOLD:
+        #     print(f"Skipping batch with high loss ({total_loss:.6f}) at step {self.global_step} on Rank {self.global_rank}")
+        #     # set to a really small number
+        #     return total_loss * 1e-10
 
         if (
             self.global_rank == 0
@@ -901,12 +901,12 @@ class ModelWrapper(LightningModule):
             if not param.requires_grad:
                 continue
             
-            # if "gaussian_param_head" in name or "interm" in name:
-            #     new_params.append(param)
-            #     new_param_names.append(name)
-            # else:
-            #     pretrained_params.append(param)
-            #     pretrained_param_names.append(name)
+            if "gaussian_param_head" in name or "interm" in name:
+                new_params.append(param)
+                new_param_names.append(name)
+            else:
+                pretrained_params.append(param)
+                pretrained_param_names.append(name)
             
             # if "dynamic_head" in name or "interm" in name:
             #     new_params.append(param)
@@ -915,8 +915,8 @@ class ModelWrapper(LightningModule):
             #     pretrained_params.append(param)
             #     pretrained_param_names.append(name)
             
-            pretrained_params.append(param)
-            pretrained_param_names.append(name)
+            # pretrained_params.append(param)
+            # pretrained_param_names.append(name)
             
             # if "gaussian_param_head" in name:
             #     new_params.append(param)

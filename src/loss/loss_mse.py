@@ -15,6 +15,7 @@ class LossMseCfg:
     conf: bool = False
     mask: bool = False
     alpha: bool = False
+    loss_type: str = "mse"
 
 
 @dataclass
@@ -57,4 +58,9 @@ class LossMse(Loss[LossMseCfg, LossMseCfgWrapper]):
 
         delta = pred_img - gt_img
 
-        return self.cfg.weight * torch.nan_to_num((delta**2).mean(), nan=0.0, posinf=0.0, neginf=0.0)
+        if self.cfg.loss_type == "l1":
+            loss = torch.abs(delta).mean()
+        else:
+            loss = (delta**2).mean()
+
+        return self.cfg.weight * torch.nan_to_num(loss, nan=0.0, posinf=0.0, neginf=0.0)

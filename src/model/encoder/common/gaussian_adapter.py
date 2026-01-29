@@ -124,8 +124,11 @@ class UnifiedGaussianAdapter(GaussianAdapter):
     ) -> Gaussians:
         scales, rotations, sh = raw_gaussians.split((3, 4, 3 * self.d_sh), dim=-1)
         
-        scales = 0.001 * F.softplus(scales)
-        scales = scales.clamp_max(0.3)
+        # scales = 0.001 * F.softplus(scales)
+        # scales = scales.clamp_max(0.3)
+
+        scales = 0.003 * F.softplus(scales)
+        scales = scales.clamp_max(0.5)
         
         # Normalize the quaternion features to yield a valid quaternion.
         rotations = rotations / (rotations.norm(dim=-1, keepdim=True) + eps)
@@ -146,63 +149,54 @@ class UnifiedGaussianAdapter(GaussianAdapter):
         )
         
 class UnifiedGaussianAdapterForDGGT(GaussianAdapter):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # 假设 sh_degree 在初始化时已知，如果只是RGB，则 d_sh * 3 = 3 (degree 0)
-        # 如果 self.d_sh 是每个颜色的系数数量 (比如 (degree+1)**2)
-        # 根据你提供的 output_dim = 3 + 1 + 3 + 4 + 1，这里的 Color 是 3 通道
-        pass
-
     def forward(
         self,
         means: Float[Tensor, "*#batch 3"],
         depths: Float[Tensor, "*#batch"],
-        opacities: Float[Tensor, "*#batch"], # 这是外部计算好传入的最终 opacity
-        raw_gaussians: Float[Tensor, "*#batch _"], # 这是 Voxelize 后的特征
+        opacities: Float[Tensor, "*#batch"], # 这是外部已经 sigmoid 处理过的 opacity (densities)
+        raw_gaussians: Float[Tensor, "*#batch _"], # 这是从 neural_feats[..., 1:] 剥离出来的 82 个通道
         eps: float = 1e-8,
         intrinsics: Optional[Float[Tensor, "*#batch 3 3"]] = None,
         coordinates: Optional[Float[Tensor, "*#batch 2"]] = None,
     ) -> Gaussians:
-        # 定义各部分通道长度
-        # 根据 output_dim = 3(Color) + 1(Opacity) + 3(Scale) + 4(Rot) (+1 Conf outside)
-        c_color = 3  # 如果是高阶SH，这里需要改为 ((sh_degree + 1)**2) * 3
-        c_opa = 1
-        c_scale = 3
-        c_rot = 4
+        # 获取当前配置的 SH 系数数量
+        d_sh = self.d_sh 
         
-        # 按照 gs_activate_head 的逻辑进行 Split
-        # 此时 raw_gaussians 不包含 Confidence (在外面已经被剥离)
-        # 顺序: [Color, Opacity, Scale, Rotation]
-        color, _, scales, rotations = torch.split(
+        # 稳健的 Split：不再硬编码 3，而是根据 self.d_sh 动态拆分
+        # AnySplat 默认顺序通常为 [Scale(3), Rotation(4), SH(3*d_sh)]
+        # 如果你的 Head 输出顺序是 [SH, Scale, Rot]，请调整 split 顺序
+        scales, rotations, sh = torch.split(
             raw_gaussians, 
-            [c_color, c_opa, c_scale, c_rot], 
+            [3, 4, 3 * d_sh], 
             dim=-1
         )
         
-        # --- 1. Scale Activation ---
-        # 对应 gs_activate_head: scale = 0.1 * F.softplus(scale)
-        scales = 0.1 * F.softplus(scales)
+        # --- 1. Scale 激活 ---
+        # 使用 softplus 保证 scale 为正数，0.1 为缩放因子（可根据需求调整）
+        # scales = 0.1 * F.softplus(scales)
+        scales = 0.003 * F.softplus(scales)
+        scales = scales.clamp_max(0.5)
         
-        # --- 2. Rotation Activation ---
-        # 对应 gs_activate_head: rotation = F.normalize(rotation, dim=-1)
+        # --- 2. Rotation 激活 ---
+        # 归一化四元数
         rotations = F.normalize(rotations, dim=-1)
         
-        # --- 3. Color / SH Processing ---
-        # 对应 gs_activate_head: if sh_degree is None: color = torch.sigmoid(color)
-        # 注意：这里 opacities 是外部传入的，所以不需要从 raw_gaussians 取出的 opacity
+        # --- 3. Color / SH 处理 ---
+        # 重新排列 SH 系数: (..., 75) -> (..., 3, 25)
+        sh = rearrange(sh, "... (xyz d_sh) -> ... xyz d_sh", xyz=3, d_sh=d_sh)
+        sh = sh.broadcast_to((*opacities.shape, 3, d_sh))
         
-        # 如果是纯 RGB (dim=3)
-        if c_color == 3:
-            sh = torch.sigmoid(color) # 限制在 [0, 1]
-            # 如果 Gaussian 类需要 SH 格式，可能需要 unsqueeze，视你的 Gaussians 类定义而定
-            # 假设 Gaussians 类可以直接接受 RGB 作为 harmonics 的 0阶项
-            # 或者我们需要把它 reshape 成 sh 格式
-            sh = sh.unsqueeze(-2) # [..., 1, 3] -> 1个基函数, 3个颜色通道
-        else:
-            # 如果是高阶 SH，通常不加 sigmoid，直接作为系数
-            sh = rearrange(color, "... (xyz d_sh) -> ... xyz d_sh", xyz=3)
-            # sh = sh.broadcast_to((*opacities.shape, 3, self.d_sh)) * self.sh_mask # 如果需要 mask
-        
+        # 应用初始化时的 SH 遮罩（可选，用于在训练初期偏向低阶分量）
+        if hasattr(self, "sh_mask"):
+            # sh_mask 形状为 (d_sh,)，广播到 (..., 3, d_sh)
+            sh = sh * self.sh_mask
+            
+        # 特殊处理：如果是 0 阶 SH（即纯 RGB），需要通过 Sigmoid 映射到 [0, 1]
+        # 如果是高阶 SH（如 degree 4），通常直接作为基函数系数，不加 Sigmoid
+        if d_sh == 1:
+            sh = torch.sigmoid(sh)
+                        
+        # 计算世界坐标系下的协方差矩阵
         covariances = build_covariance(scales, rotations)
         
         return Gaussians(
