@@ -77,7 +77,7 @@ save_interpolated_video(pred_all_extrinsic, pred_all_intrinsic, b, h, w, gaussia
 
 ```
 # single node:
-CUDA_VISIBLE_DEVICES=0 python src/main.py +experiment=nuscenes trainer.num_nodes=1
+CUDA_VISIBLE_DEVICES=0,1 python src/main.py +experiment=nuscenes trainer.num_nodes=1
 
 # multi nodes:
 export GPU_NUM=8

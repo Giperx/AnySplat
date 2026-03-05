@@ -50,15 +50,35 @@ class VGGT_DPT_GS_Head(DPTHead):
     ):
         super().__init__(dim_in, patch_size, output_dim, activation, conf_activation, features, out_channels, intermediate_layer_idx, pos_embed, feature_only, down_ratio)
         
+        # OG base
+        # head_features_1 = 128
+        # head_features_2 = 128 if output_dim > 50 else 32 # sh=0, head_features_2 = 32; sh=4, head_features_2 = 128
+        # self.input_merger = nn.Sequential(
+        #     nn.Conv2d(3, head_features_2, 7, 1, 3),
+        #     nn.ReLU(),
+        # )
+        
+        # self.scratch.output_conv2 = nn.Sequential(
+        #         nn.Conv2d(head_features_1, head_features_2, kernel_size=3, stride=1, padding=1),
+        #         nn.ReLU(inplace=True),
+        #         nn.Conv2d(head_features_2, output_dim, kernel_size=1, stride=1, padding=0),
+        #     )
+
+        # 获取基础 DPT 特征维度（通常是 256）
         head_features_1 = 128
-        head_features_2 = 128 if output_dim > 50 else 32 # sh=0, head_features_2 = 32; sh=4, head_features_2 = 128
+        head_features_2 = 128 if output_dim > 50 else 32
+        
+        # 核心修复：确保 DPT 主干输出与图像融合层维度匹配
+        self.scratch.output_conv1 = nn.Conv2d(features, head_features_2, kernel_size=3, stride=1, padding=1)
+        
         self.input_merger = nn.Sequential(
             nn.Conv2d(3, head_features_2, 7, 1, 3),
             nn.ReLU(),
         )
         
+        # 这里的输入维度现在应该是 head_features_2 了
         self.scratch.output_conv2 = nn.Sequential(
-                nn.Conv2d(head_features_1, head_features_2, kernel_size=3, stride=1, padding=1),
+                nn.Conv2d(head_features_2, head_features_2, kernel_size=3, stride=1, padding=1),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(head_features_2, output_dim, kernel_size=1, stride=1, padding=0),
             )

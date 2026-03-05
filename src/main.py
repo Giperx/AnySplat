@@ -116,7 +116,7 @@ def train(cfg_dict: DictConfig):
     trainer = Trainer(
         max_epochs=-1,
         num_nodes=cfg.trainer.num_nodes,
-        # num_sanity_val_steps=0, # -1 means val all at the beginning
+        num_sanity_val_steps=-1, # -1 means val all at the beginning
         accelerator="gpu",
         logger=logger,
         devices="auto",

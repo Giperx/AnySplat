@@ -339,7 +339,7 @@ class GaussianHead(nn.Module):
         out_channels: List[int] = [256, 512, 1024, 1024],
         intermediate_layer_idx: List[int] = [4, 11, 17, 23],
         pos_embed: bool = True,
-        feature_only: bool = False,
+        feature_only: bool = True,
         down_ratio: int = 1,
         sh_degree = None
     ) -> None:

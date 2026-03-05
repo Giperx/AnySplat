@@ -542,7 +542,7 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
             out = self.gaussian_param_head(image_tokens_list, image, patch_start_idx)    
         else:
             out = self.gaussian_param_head(
-                image_tokens_list, # aggregated_tokens_list,
+                image_tokens_list, # aggregated_tokens_list, image_tokens_list
                 pts_all.flatten(0, 1).permute(0, 3, 1, 2),
                 image,
                 patch_start_idx=patch_start_idx,
@@ -676,7 +676,7 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         infos["scene_scale"] = scene_scale
         infos["voxelize_ratio"] = densities.shape[1] / (h * w * v)
 
-        if global_step % 50 == 0:
+        if global_step > 40 and global_step % 50 == 0:
             print(
                 f"scene scale: {scene_scale:.3f}, pixel-wise num: {h*w*v}, after voxelize: {neural_pts.shape[1]}, voxelize ratio: {infos['voxelize_ratio']:.3f}"
             )
